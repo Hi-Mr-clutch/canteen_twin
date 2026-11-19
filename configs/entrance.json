@@ -1,0 +1,181 @@
+{
+  "_readme": [
+    "饭堂门口人流分析配置（通用版，坐标是示例值；有实测数据请用 entrance_measured.json）。",
+    "必改项只有两组：video.path（视频文件）和 homography（四点标定）。",
+    "homography 用 tools/calibrate_homography.py 交互点四个点自动生成，不要手填。",
+    "点哪四个点：柱子、门框、台阶沿这些建筑自身的角点即可，不需要摆任何标记物。",
+    "尺度（ground_size_m）不影响人数/进出人次/峰值同框/人均停留/热力图形状，只影响速度与 UE 里的绝对距离；估一个也能跑完整报告。",
+    "zones / counters 的坐标都在这个米制地面上，先标定再用 tools/pick_zones.py 在画面上点出来。"
+  ],
+  "video": {
+    "path": "../data/input/door_front.mp4",
+    "start_sec": 0.0,
+    "end_sec": null,
+    "frame_step": 1,
+    "max_frames": null
+  },
+  "detector": {
+    "type": "auto",
+    "probe_frames": 12,
+    "probe_min_avg": 0.3,
+    "yolo": {
+      "weights": "yolov8n.pt",
+      "conf": 0.25,
+      "iou": 0.45,
+      "imgsz": 960,
+      "device": "cpu",
+      "person_class": 0
+    },
+    "motion": {
+      "history": 300,
+      "var_threshold": 20.0,
+      "min_area": 140,
+      "max_area": 60000,
+      "min_height": 22,
+      "max_aspect": 2.6,
+      "foot_offset_ratio": -0.1,
+      "learning_rate": 0.001,
+      "skip_frames": 12
+    }
+  },
+  "tracker": {
+    "iou_threshold": 0.15,
+    "max_age": 45,
+    "min_hits": 2,
+    "smooth": 0.45,
+    "max_speed_mps": 3.0,
+    "center_weight": 0.55,
+    "center_gate": 0.8,
+    "use_appearance": true,
+    "appearance_weight": 0.6,
+    "appearance_decay": 0.7
+  },
+  "homography": {
+    "image_points": [
+      [
+        102.0,
+        711.0
+      ],
+      [
+        1178.0,
+        711.0
+      ],
+      [
+        923.0,
+        310.0
+      ],
+      [
+        357.0,
+        310.0
+      ]
+    ],
+    "ground_points": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        12.0,
+        0.0
+      ],
+      [
+        12.0,
+        9.0
+      ],
+      [
+        0.0,
+        9.0
+      ]
+    ],
+    "ground_size_m": [
+      12.0,
+      9.0
+    ],
+    "ue_origin_cm": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "flip_x": false
+  },
+  "zones": [
+    {
+      "name": "door_front",
+      "label": "门前缓冲区",
+      "polygon": [
+        [
+          3.9,
+          7.2
+        ],
+        [
+          7.3,
+          7.2
+        ],
+        [
+          7.3,
+          9.0
+        ],
+        [
+          3.9,
+          9.0
+        ]
+      ],
+      "color": [
+        60,
+        170,
+        255
+      ]
+    },
+    {
+      "name": "aisle",
+      "label": "门前通道",
+      "polygon": [
+        [
+          0.0,
+          2.6
+        ],
+        [
+          12.0,
+          2.6
+        ],
+        [
+          12.0,
+          6.9
+        ],
+        [
+          0.0,
+          6.9
+        ]
+      ],
+      "color": [
+        255,
+        190,
+        80
+      ]
+    }
+  ],
+  "counters": [
+    {
+      "name": "door",
+      "p1": [
+        4.4,
+        8.2
+      ],
+      "p2": [
+        6.8,
+        8.2
+      ],
+      "inward_sign": 1
+    }
+  ],
+  "output": {
+    "out_dir": "../out/entrance",
+    "save_video": true,
+    "save_tracks": true,
+    "save_heatmap": true,
+    "save_dashboard": true,
+    "save_realtime": true,
+    "save_csv": true,
+    "video_scale": 1.0
+  }
+}

@@ -1,0 +1,12 @@
+# 视频分析管线依赖
+# 说明：numpy / opencv / scipy 是必需的三件套；
+#       ultralytics + torch 只有在用 YOLO 检测器（真实监控视频）时才需要，
+#       不装也能跑，管线会自动降级到前景差分（motion）模式。
+
+numpy>=1.24
+opencv-python>=4.6
+scipy>=1.9
+
+# --- 可选：YOLO 检测器（真实视频推荐） ---
+ultralytics>=8.0
+torch>=2.0

@@ -1,0 +1,149 @@
+{
+  "_measured": {
+    "pillar_span_m": 4.47,
+    "door_width_m": 3.27,
+    "pillar_to_door_depth_m": 2.13,
+    "pillar_height_m": 4.38,
+    "door_sill_above_pillar_base_m": 0.2,
+    "note": "门框底比柱脚高 0.2m，四点因此略不共面，纵深比例约偏一成。直接点门框底即可；想更准就沿门框竖边下移 0.2m 到与柱脚齐平处再点。梯形坐标无需改动，人数与进出人次也不受影响。"
+  },
+  "_readme": [
+    "第一食堂正门 · 实测参数版配置（现场实测）。",
+    "实测数据：柱距 4.47m / 门宽 3.27m / 柱到门进深 2.13m / 柱高 4.38m / 门框底比柱脚高 0.2m。",
+    "homography.ground_points 已按实测数据推出等腰梯形：近边=两柱脚 4.47m，远边=两门框竖边 3.27m，进深 2.13m。",
+    "你只需要填 homography.image_points 这一项。不需要摆任何标记物——柱子、门框本身就是最好的参照点，",
+    "边缘锐利、永久固定、不会被人踩走。标定命令：",
+    "  python3 tools/calibrate_homography.py --video data/input/door_front.mp4 --entrance-geometry 4.47,3.27,2.13",
+    "点选顺序：左柱脚 → 右柱脚 → 右门框底 → 左门框底（都是建筑自身的角点）。",
+    "门框底比柱脚高 0.2m 的话直接点门框底就行，只让纵深比例偏一成；想更准就沿门框竖边下移 0.2m 再点。",
+    "尺度不影响人数、进出人次、峰值同框、人均停留、热力图形状，只影响速度与 UE 里的绝对距离。",
+    "counters/zones 已按实测几何预置，标定后可直接用；若画面里门洞位置与此不符，用 pick_zones.py 重点。"
+  ],
+  "video": {
+    "path": "../data/input/door_front.mp4",
+    "start_sec": 0.0,
+    "end_sec": null,
+    "frame_step": 1,
+    "max_frames": null
+  },
+  "detector": {
+    "type": "auto",
+    "probe_frames": 12,
+    "probe_min_avg": 0.3,
+    "yolo": {
+      "weights": "yolov8n.pt",
+      "conf": 0.25,
+      "iou": 0.45,
+      "imgsz": 960,
+      "device": "cpu",
+      "person_class": 0
+    },
+    "motion": {
+      "history": 300,
+      "var_threshold": 20.0,
+      "min_area": 140,
+      "max_area": 60000,
+      "min_height": 22,
+      "max_aspect": 2.6,
+      "foot_offset_ratio": -0.1,
+      "learning_rate": 0.001,
+      "skip_frames": 12
+    }
+  },
+  "tracker": {
+    "iou_threshold": 0.15,
+    "max_age": 45,
+    "min_hits": 2,
+    "smooth": 0.45,
+    "max_speed_mps": 3.0,
+    "center_weight": 0.55,
+    "center_gate": 0.8,
+    "use_appearance": true,
+    "appearance_weight": 0.6,
+    "appearance_decay": 0.7
+  },
+  "homography": {
+    "image_points": [],
+    "ground_points": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        4.47,
+        0.0
+      ],
+      [
+        3.87,
+        2.13
+      ],
+      [
+        0.6,
+        2.13
+      ]
+    ],
+    "ground_size_m": [
+      4.47,
+      2.13
+    ],
+    "ue_origin_cm": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "flip_x": false
+  },
+  "zones": [
+    {
+      "name": "porch",
+      "label": "门前平台",
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          4.47,
+          0.0
+        ],
+        [
+          3.87,
+          2.13
+        ],
+        [
+          0.6,
+          2.13
+        ]
+      ],
+      "color": [
+        60,
+        170,
+        255
+      ]
+    }
+  ],
+  "counters": [
+    {
+      "name": "door",
+      "p1": [
+        0.6,
+        2.13
+      ],
+      "p2": [
+        3.87,
+        2.13
+      ],
+      "inward_sign": 1
+    }
+  ],
+  "output": {
+    "out_dir": "../out/entrance",
+    "save_video": true,
+    "save_tracks": true,
+    "save_heatmap": true,
+    "save_dashboard": true,
+    "save_realtime": true,
+    "save_csv": true,
+    "video_scale": 1.0
+  }
+}

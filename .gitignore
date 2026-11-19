@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行产物：每次跑管线重新生成，不进仓库
+out/
+
+# 输入视频：体积大，各自本地准备（说明文件保留）
+data/input/*
+!data/input/README.md
+
+# 模型权重：仓库已随附 yolov8n.pt，其余大权重不入库
+*.pt
+*.onnx
+*.engine
+!/yolov8n.pt
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store

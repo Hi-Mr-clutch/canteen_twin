@@ -1,0 +1,149 @@
+{
+  "_note": "最终素材 A（1920x1080 / 29.97fps / 31.2s）。四个 image_points 已按该视频首帧实际画面标定，无需再点，直接跑即可。若换了视频或改了分辨率，必须重新标定——像素坐标不通用。把素材改名为 video_a_1080p.mp4 放到 data/input/ 下。",
+  "video": {
+    "path": "../data/input/video_a_1080p.mp4",
+    "start_sec": 0.0,
+    "end_sec": null,
+    "frame_step": 1,
+    "max_frames": null
+  },
+  "detector": {
+    "type": "auto",
+    "probe_frames": 12,
+    "probe_min_avg": 0.3,
+    "yolo": {
+      "weights": "yolov8n.pt",
+      "conf": 0.25,
+      "iou": 0.45,
+      "imgsz": 960,
+      "device": "cpu",
+      "person_class": 0
+    },
+    "motion": {
+      "history": 300,
+      "var_threshold": 20.0,
+      "min_area": 140,
+      "max_area": 60000,
+      "min_height": 22,
+      "max_aspect": 2.6,
+      "foot_offset_ratio": -0.1,
+      "learning_rate": 0.001,
+      "skip_frames": 12
+    }
+  },
+  "tracker": {
+    "iou_threshold": 0.15,
+    "max_age": 45,
+    "min_hits": 2,
+    "smooth": 0.45,
+    "max_speed_mps": 3.0,
+    "center_weight": 0.55,
+    "center_gate": 0.8,
+    "use_appearance": true,
+    "appearance_weight": 0.6,
+    "appearance_decay": 0.7
+  },
+  "homography": {
+    "image_points": [
+      [
+        440,
+        910
+      ],
+      [
+        1350,
+        886
+      ],
+      [
+        1040,
+        765
+      ],
+      [
+        560,
+        765
+      ]
+    ],
+    "ground_points": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        4.47,
+        0.0
+      ],
+      [
+        3.87,
+        2.13
+      ],
+      [
+        0.6,
+        2.13
+      ]
+    ],
+    "ground_size_m": [
+      4.47,
+      2.13
+    ],
+    "ue_origin_cm": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "flip_x": false
+  },
+  "zones": [
+    {
+      "name": "porch",
+      "label": "门前平台",
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          4.47,
+          0.0
+        ],
+        [
+          3.87,
+          2.13
+        ],
+        [
+          0.6,
+          2.13
+        ]
+      ],
+      "color": [
+        60,
+        170,
+        255
+      ]
+    }
+  ],
+  "counters": [
+    {
+      "name": "door",
+      "p1": [
+        0.6,
+        2.13
+      ],
+      "p2": [
+        3.87,
+        2.13
+      ],
+      "inward_sign": 1,
+      "debounce_sec": 0.5,
+      "min_travel_m": 0.15
+    }
+  ],
+  "output": {
+    "out_dir": "../out/entrance_a",
+    "save_video": true,
+    "save_tracks": true,
+    "save_heatmap": true,
+    "save_dashboard": true,
+    "save_realtime": true,
+    "save_csv": true,
+    "video_scale": 1.0
+  }
+}

@@ -26,6 +26,11 @@ video.mp4 ─▶ 检测(人) ─▶ 跟踪(稳定ID) ─▶ 四点透视(像素�
 |---|---|---|
 | 门口视频 | 固定机位、俯角 25°~45°、画面里有**门洞 + 门前地面 + 柱子/门框** | `data/input/door_front.mp4` |
 
+> **两段最终素材已定稿**（A 1080p / B 720p），不再重录。已标定的可复现配置
+> `configs/final_a_1080p.json`、`configs/final_b_720p.json`，放好素材后直接跑；
+> 参数、标定点、最终统计与已知局限见 [`docs/final_footage.md`](docs/final_footage.md)。
+> 视频本体体积大（A 98 MiB）不进仓库，请用网盘/U 盘交给协作者。
+
 > 相比两机位方案，单机位省掉了：两路对时、转角墙出镜、画面不重叠、90° 坐标旋转、
 > 结果合并，以及"累计人数不能相加"这个口径坑。**不需要第二台设备，也不需要合并脚本。**
 
@@ -98,7 +103,9 @@ UE5 里 **NPC 和 UI 共用一个时钟**：同一个 Tick 读一次 `MediaPlaye
 | 需要 | 在哪 |
 |---|---|
 | 数据契约（字段表 / 定位公式 / 示例） | [`docs/realtime_data_contract.md`](docs/realtime_data_contract.md) |
+| **真实视频数据样例（推荐联调用）** | `examples/realtime_a_1080p.json`、`examples/realtime_b_720p.json` |
 | 无需真实视频的联调样例 | `examples/realtime_sample.json` |
+| 素材参数 / 最终统计结果 | [`docs/final_footage.md`](docs/final_footage.md) |
 | UE5 侧怎么把视频时间喂给页面 | [`docs/ue5_integration.md`](docs/ue5_integration.md) 第 5 节 |
 
 `dashboard.html` 只是离线占位看板，正式 UI 可直接替换或忽略。
@@ -170,13 +177,19 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
 | 指标 | 定义 | 用途 |
 |---|---|---|
 | 累计人数 | 拼接去重后的轨迹数 | 这一时段来了多少人 |
-| 进店 / 出店 | 轨迹穿越门洞计数线的方向 | 双向人流、净流入 |
+| 进店 / 出店 | 轨迹穿越门洞计数线的方向（**带防抖**） | 双向人流、净流入 |
 | 峰值同框 | 逐帧画面内人数的最大值 | 门口最挤的时刻 |
 | 门前区域占用 | 轨迹落在「门前缓冲区 / 门前通道」的帧数 | 门口是否拥堵、滞留多久 |
 | 热力图 | 地面 0.25m 栅格累积人数 | 动线走向，报告里最好看的一张图 |
 
 计数线方向：`counters[].p1 → p2` 的左手法向为"进"。方向反了就把 `inward_sign` 改成 `-1`，
 或者把 p1/p2 对调。看 `annotated.mp4` 里计数线的 `in: x out: y` 是不是跟着人变就知道对不对。
+
+> **计数防抖**：脚点在门线附近抖动几厘米，叉积符号就会反复翻转，若每次都记会让人次虚高
+> （真实视频实测高估 60%~80%）。`CounterLine` 要求同一人两次有效穿线同时满足
+> `间隔 ≥ debounce_sec`（默认 0.5s）且 `脚点移动 ≥ min_travel_m`（默认 0.15m），
+> 两个阈值在 `counters[]` 里配置，设 0 可关闭。仅影响进 / 出人次，
+> 不影响累计人数、峰值、停留、热力图（`realtime.json` 结构不变，UI 侧无感）。
 
 ---
 
@@ -210,7 +223,8 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
   },
 
   "zones":    [ {"name":"porch","polygon":[[0,0],[4.47,0],[3.87,2.13],[0.6,2.13]]} ],
-  "counters": [ {"name":"door","p1":[0.6,2.13],"p2":[3.87,2.13],"inward_sign":1} ]
+  "counters": [ {"name":"door","p1":[0.6,2.13],"p2":[3.87,2.13],"inward_sign":1,
+                 "debounce_sec":0.5,"min_travel_m":0.15} ]
 }
 ```
 
@@ -231,8 +245,9 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
 | 检测器出框 | 单元测试通过（内存移动色块） |
 | 导出 schema | 单元测试通过（tracks / npc_tracks 字段齐全） |
 | 实时数据 | 单元测试通过（逐帧累计与最终汇总一致、事件类型 / 帧号契约齐全） |
-| 全链路 | 用一段临时测试片段跑通，产出 9 个文件，约 600 fps（640×360） |
-| 真实门口视频的精度 | **待你的素材**。到时按实际画面标定 + 调 `min_area`，并实测 recall / IDF1 |
+| 全链路 | 用临时片段 + 两段真实门口视频跑通，各产出 9 个文件 |
+| 真实门口视频 | **素材已定稿**：A(1080p) 58 人 / 进 74 出 37，B(720p) 34 人 / 进 22 出 8，见 [`docs/final_footage.md`](docs/final_footage.md) |
+| 计数防抖 | 真实视频实测把虚高人次压掉 38%（A）/ 23%（B）；`analytics.json` = `realtime.json` = 画面计数线，三处一致 |
 
 `python3 tests/test_smoke.py` 可随时复跑；`data/input/` 里有视频时会自动加跑一次端到端。
 
@@ -257,15 +272,22 @@ canteen_twin/
 │   └── run_all.sh                # 一键：测试 → 跑管线
 ├── configs/
 │   ├── entrance.json             # 门口场景通用配置（示例坐标，按需改）
-│   └── entrance_measured.json    # 第一食堂正门 · 实测参数版（推荐）
+│   ├── entrance_measured.json    # 第一食堂正门 · 实测参数版（待填 4 个像素点）
+│   ├── final_a_1080p.json        # ★ 最终素材 A：已标定，直接跑
+│   └── final_b_720p.json         # ★ 最终素材 B：已标定，直接跑
 ├── data/input/                   # ← 你的视频放这里（附标定与录制说明）
 ├── examples/
-│   └── realtime_sample.json     # 给 UI 协作者的联调样例数据
-├── out/entrance/                 # 输出（不进仓库）
+│   ├── realtime_sample.json     # 无真实视频时的合成联调样例
+│   ├── realtime_a_1080p.json    # ★ 真实视频 A 产出的实时数据
+│   └── realtime_b_720p.json     # ★ 真实视频 B 产出的实时数据
+├── out/                          # 输出（不进仓库）
 ├── yolov8n.pt                    # YOLOv8n 权重（已随仓库附带）
-├── tests/test_smoke.py           # 9 项冒烟测试
+├── tests/test_smoke.py           # 冒烟测试（含计数防抖）
 └── docs/
     ├── calib_points_demo.png     # 标定四点示意：点建筑角点，不用摆标记物
+    ├── final_footage.md          # ★ 最终素材参数 / 标定点 / 结果 / 已知局限
+    ├── modeling_spec.md          # UE5 建模规格：尺寸表 / 轴向 / 自检
+    ├── modeling_plan.png         # 门廊俯视平面图
     ├── realtime_data_contract.md # ★ 给 UI 协作者的实时数据契约
     └── ue5_integration.md        # UE5 蓝图读 JSON / NPC 插值 / 视频同步 / UI 接线
 ```
@@ -280,7 +302,7 @@ canteen_twin/
 | 遮挡后 ID 会断 | UE5 里表现为 NPC 重生 | YOLO 能大幅缓解；`max_age` 调大可容忍更久 |
 | 固定机位假设 | 机位一动标定作废，要重标 | 云台机位本期不支持 |
 | 无 GPU 时较慢 | 1080p 大约 10~15fps | 上 GPU，或 `imgsz` 降到 640 / `frame_step` 抽帧 |
-| 进出计数依赖轨迹穿线 | 贴线徘徊的人可能多计一次 | 计数线放在门口没有停留的位置 |
+| 进出计数依赖轨迹穿线 | 贴线徘徊曾会重复计数（高估 6~8 成） | 已加防抖：`counters[].debounce_sec` / `min_travel_m` 可调；画面拥挤时调大 |
 | **单机位只覆盖一个门** | 结论不能代表"全饭堂总人流" | 报告写明采样的是哪个门；要全覆盖再加第二路 |
 
 下一步是 UE5 侧，接口和蓝图写法见 [`docs/ue5_integration.md`](docs/ue5_integration.md)。

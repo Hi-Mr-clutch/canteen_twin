@@ -11,7 +11,8 @@
   7. 导出：JSON schema 关键字段齐全
   8. 实时时间轴：逐帧累计数与最终汇总一致、事件流方向正确
   9. 实时数据：导出 realtime.json，字段/事件/帧号符合数据契约
-  10. 全链路：data/input 里有视频就跑 40 帧 mini pipeline，没有则跳过
+  10. 计数防抖：脚点在门线抖动不重复计数、真正往返能分别计数、可关闭
+  11. 全链路：data/input 里有视频就跑 40 帧 mini pipeline，没有则跳过
 """
 from __future__ import annotations
 
@@ -144,12 +145,17 @@ def t_export_schema():
 
 
 def _mini_analytics():
-    """3 帧小场景：1 号进→出，2 号进；用于验证逐帧累计口径。"""
+    """3 帧小场景：1 号进→出，2 号进；用于验证逐帧累计口径。
+
+    这里显式关闭防抖（debounce_sec=0, min_travel_m=0），因为相邻帧的进出
+    是本用例刻意构造的；防抖行为由 t_counter_debounce 单独覆盖。
+    """
     from src import analytics as ana
     cfg = _cfg()
     a = ana.Analytics(cfg, 10.0)
     a.set_heatmap(12, 9)
-    a.add_counter(ana.CounterLine([0, 0], [10, 0], "door", 1))
+    a.add_counter(ana.CounterLine([0, 0], [10, 0], "door", 1,
+                                  debounce_sec=0, min_travel_m=0, fps=10.0))
     a.update_frame(0, [{"id": 1, "x_m": 1.0, "y_m": -0.5, "speed_mps": 0.5}])
     a.update_frame(1, [{"id": 1, "x_m": 1.0, "y_m": 0.5, "speed_mps": 0.5},
                        {"id": 2, "x_m": 2.0, "y_m": -0.5, "speed_mps": 0.5}])
@@ -202,6 +208,44 @@ def t_realtime_export():
     assert d["ground_m"] == [12.0, 9.0]
 
 
+def t_counter_debounce():
+    """脚点在门线附近抖动会被反复计数，防抖应压掉；真正往返仍能分别计数。"""
+    from src import analytics as ana
+
+    # 门线 y=0，x∈[0,10]；y<0 为负侧、y>0 为正侧，负→正算「进」
+    def make(**kw):
+        return ana.CounterLine([0, 0], [10, 0], "door", 1, fps=10.0, **kw)
+
+    # 场景 1：同一人在门线附近反复横跨 ±0.03m（位移远小于 0.15m），持续 30 帧
+    c = make(debounce_sec=0.5, min_travel_m=0.15)   # 0.5s@10fps = 5 帧
+    for f in range(30):
+        c.update(1, (5.0, -0.03 if f % 2 == 0 else 0.03), f)
+    assert c.in_count + c.out_count <= 1, \
+        f"抖动应被抑制为最多 1 次，实际 {c.in_count}/{c.out_count}"
+
+    # 场景 2：关闭防抖应回到旧行为（同样抖动会记很多次）
+    c0 = make(debounce_sec=0, min_travel_m=0)
+    for f in range(30):
+        c0.update(1, (5.0, -0.03 if f % 2 == 0 else 0.03), f)
+    assert c0.in_count + c0.out_count >= 20, "关闭防抖后应恢复重复计数"
+
+    # 场景 3：真正「走进去停留再走出来」应分别记 in / out
+    c2 = make(debounce_sec=0.5, min_travel_m=0.15)
+    for f in range(0, 6):                       # 从负侧走到正侧远处
+        c2.update(7, (5.0, -0.8 + f * 0.3), f)
+    for f in range(6, 20):                      # 停留（间隔拉开）
+        c2.update(7, (5.0, 1.0), f)
+    for f in range(20, 26):                     # 再走回负侧，穿线 → out
+        c2.update(7, (5.0, 1.0 - (f - 19) * 0.3), f)
+    assert c2.in_count == 1 and c2.out_count == 1, \
+        f"一次往返应 in=1/out=1，实际 {c2.in_count}/{c2.out_count}"
+
+    # 场景 4：配置里的两个阈值确实被读取（CounterCfg 有默认值且可覆盖）
+    from src.config import CounterCfg
+    assert CounterCfg().debounce_sec == 0.5 and CounterCfg().min_travel_m == 0.15
+    assert CounterCfg(debounce_sec=0.7, min_travel_m=0.25).debounce_sec == 0.7
+
+
 def _first_input_video():
     d = os.path.join(ROOT, "data", "input")
     if not os.path.isdir(d):
@@ -242,6 +286,7 @@ def main():
     check("导出：JSON schema", t_export_schema)
     check("实时时间轴：逐帧累计与汇总一致", t_timeline)
     check("实时数据：realtime.json 数据契约", t_realtime_export)
+    check("计数防抖：抖动抑制/往返可计/可关闭", t_counter_debounce)
     check("全链路：40 帧 mini pipeline", t_end_to_end_mini)
 
     print("-" * 56)

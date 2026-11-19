@@ -104,6 +104,21 @@ class GroundMapper:
         }
 
 
+def make_counters(cfg, fps: float):
+    """按配置构造计数线，防抖阈值统一从这里下发。
+
+    三处（首遍可视化、出图重放、最终统计）都走这里，避免参数写歪导致
+    画面上显示的 in/out 数字和 analytics.json 对不上。
+    fps 是「处理后帧率」，与 update 传入的帧号单位一致。
+    """
+    return [ana.CounterLine(
+        c.p1, c.p2, c.name, c.inward_sign,
+        debounce_sec=getattr(c, "debounce_sec", 0.5),
+        min_travel_m=getattr(c, "min_travel_m", 0.15),
+        fps=fps,
+    ) for c in cfg.counters]
+
+
 # ---------------------------------------------------------------- 可视化
 def draw_zones(frame, H, zones, counters):
     Hinv = homo.invert_homography(H)
@@ -162,7 +177,7 @@ def render_video(video_path, frames_out, H, cfg, fps, step, start_frame_idx,
 
     zone_mgr = ana.ZoneManager(cfg.zones, log=lambda *a, **k: None)
     zone_labels = zone_mgr.labels()
-    counters = [ana.CounterLine(c.p1, c.p2, c.name, c.inward_sign) for c in cfg.counters]
+    counters = make_counters(cfg, fps)
 
     raw = 0
     for fr in frames_out:
@@ -178,7 +193,7 @@ def render_video(video_path, frames_out, H, cfg, fps, step, start_frame_idx,
 
         for a in fr["actors"]:                      # 先更新计数，再画（文本里要显示最新值）
             for c in counters:
-                c.update(int(a["id"]), (a["x_m"], a["y_m"]))
+                c.update(int(a["id"]), (a["x_m"], a["y_m"]), fr["frame"])
         vis = frame.copy()
         draw_zones(vis, H, zone_mgr.zones, counters)
         for a in fr["actors"]:
@@ -299,8 +314,8 @@ def main(argv=None):
     mapper = GroundMapper(H, cfg.tracker, fps)
     stats = ana.Analytics(cfg, fps, log=log)
     stats.set_heatmap(gw, gh)
-    for cc in cfg.counters:
-        stats.add_counter(ana.CounterLine(cc.p1, cc.p2, cc.name, cc.inward_sign))
+    for c in make_counters(cfg, fps):
+        stats.add_counter(c)
 
     vpath = os.path.join(out_dir, "annotated.mp4")
     start_frame_idx = int(round(cfg.video.start_sec * src_fps))
@@ -343,7 +358,7 @@ def main(argv=None):
         for info in frame_actors:
             info["zone"] = stats.zones.locate(info["x_m"], info["y_m"])
             for c in stats.counters:
-                c.update(int(info["id"]), (info["x_m"], info["y_m"]))
+                c.update(int(info["id"]), (info["x_m"], info["y_m"]), seq)
         zone_labels = stats.zones.labels()
 
         frames_out.append({
@@ -376,8 +391,8 @@ def main(argv=None):
     # --- 用拼接后的 ID 重算统计（纯内存重放，几十毫秒）---
     stats_final = ana.Analytics(cfg, fps, log=log)
     stats_final.set_heatmap(gw, gh)
-    for cc in cfg.counters:
-        stats_final.add_counter(ana.CounterLine(cc.p1, cc.p2, cc.name, cc.inward_sign))
+    for c in make_counters(cfg, fps):
+        stats_final.add_counter(c)
     for fr in frames_out:
         stats_final.update_frame(fr["frame"], fr["actors"])
 

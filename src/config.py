@@ -101,6 +101,8 @@ class CounterCfg:
     p1: list = field(default_factory=lambda: [0.0, 0.0])
     p2: list = field(default_factory=lambda: [0.0, 1.0])
     inward_sign: int = 1      # 1 表示从 line 负侧到正侧算「进入」
+    debounce_sec: float = 0.5     # 同一人两次有效穿线的最小间隔（秒），抑制脚点抖动重复计数
+    min_travel_m: float = 0.15    # 两次有效穿线之间脚点至少移动的距离（米）
 
 
 @dataclass

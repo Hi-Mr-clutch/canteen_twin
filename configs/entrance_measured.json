@@ -17,7 +17,10 @@
     "点选顺序：左柱脚 → 右柱脚 → 右门框底 → 左门框底（都是建筑自身的角点）。",
     "门框底比柱脚高 0.2m 的话直接点门框底就行，只让纵深比例偏一成；想更准就沿门框竖边下移 0.2m 再点。",
     "尺度不影响人数、进出人次、峰值同框、人均停留、热力图形状，只影响速度与 UE 里的绝对距离。",
-    "counters/zones 已按实测几何预置，标定后可直接用；若画面里门洞位置与此不符，用 pick_zones.py 重点。"
+    "counters/zones 已按实测几何预置，标定后可直接用；若画面里门洞位置与此不符，用 pick_zones.py 重点。",
+    "counters 的 debounce_sec / min_travel_m 是计数防抖：脚点在门线附近抖动会被反复计数，",
+    "同一人两次有效穿线须间隔 >=debounce_sec 且脚点移动 >=min_travel_m。真实视频实测可把虚高的人次压掉 6~8 成。",
+    "两个值都设为 0 可关闭防抖（回到旧行为）；画面拥挤时可把 debounce_sec 调到 0.7、min_travel_m 调到 0.25。"
   ],
   "video": {
     "path": "../data/input/door_front.mp4",
@@ -133,7 +136,9 @@
         3.87,
         2.13
       ],
-      "inward_sign": 1
+      "inward_sign": 1,
+      "debounce_sec": 0.5,
+      "min_travel_m": 0.15
     }
   ],
   "output": {

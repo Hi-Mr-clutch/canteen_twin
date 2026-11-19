@@ -70,16 +70,31 @@ class ZoneManager:
 
 
 class CounterLine:
-    """进出计数：一条地面线段，统计轨迹从中穿过的人与方向。"""
+    """进出计数：一条地面线段，统计轨迹从中穿过的人与方向。
 
-    def __init__(self, p1, p2, name="door", inward_sign=1):
+    防抖（debounce）：脚点在线附近来回抖几厘米就会让叉积符号反复翻转，
+    若每次翻转都记一次，进出人次会严重虚高（真实视频实测高估 60%~80%）。
+    因此一次「有效穿越」必须同时满足两个条件：
+      1) 距该 ID 上一次成功计数 >= debounce_sec（按 fps 换算成帧数）；
+      2) 当前脚点距上一次成功计数的位置 >= min_travel_m（确实离开了门线）。
+    两个阈值都可在配置里调；设为 0 即关闭防抖，回到旧行为。
+    """
+
+    def __init__(self, p1, p2, name="door", inward_sign=1,
+                 debounce_sec=0.5, min_travel_m=0.15, fps=30.0):
         self.p1 = np.asarray(p1, dtype=np.float32)
         self.p2 = np.asarray(p2, dtype=np.float32)
         self.name = name
         self.inward_sign = inward_sign
         self.in_count = 0
         self.out_count = 0
+        self.debounce_sec = float(debounce_sec)
+        self.min_travel_m = float(min_travel_m)
+        self.min_gap_frames = max(0, int(round(self.debounce_sec * max(fps, 1e-3))))
         self._last_side: Dict[int, float] = {}
+        self._last_hit_frame: Dict[int, int] = {}
+        self._last_hit_pos: Dict[int, tuple] = {}
+        self._tick = 0
 
     def _side(self, p) -> float:
         """叉积符号：正负表示点在线段的哪一侧。"""
@@ -87,21 +102,39 @@ class CounterLine:
         b = np.asarray(p, dtype=np.float32) - self.p1
         return float(a[0] * b[1] - a[1] * b[0])
 
-    def update(self, track_id: int, p) -> Optional[str]:
+    def update(self, track_id: int, p, frame=None) -> Optional[str]:
+        """p=(x_m, y_m) 为地面脚点；frame 为处理后帧号（不传则用内部自增时钟兜底）。"""
         s = self._side(p)
         prev = self._last_side.get(track_id)
         self._last_side[track_id] = s
-        if prev is None:
+        if prev is None or prev * s >= 0:
+            return None                      # 首帧 / 没穿越
+
+        if frame is None:
+            self._tick += 1
+            f = self._tick
+        else:
+            f = int(frame)
+
+        # 条件 1：与上一次成功计数至少间隔 min_gap_frames 帧
+        last_f = self._last_hit_frame.get(track_id, -10 ** 9)
+        if f - last_f < self.min_gap_frames:
             return None
-        if prev * s < 0:
-            # 方向：side 由负变正 = 沿法线正方向
-            direction = "in" if (s - prev) * self.inward_sign > 0 else "out"
-            if direction == "in":
-                self.in_count += 1
-            else:
-                self.out_count += 1
-            return direction
-        return None
+        # 条件 2：脚点确实离开了上次计数的位置
+        last_p = self._last_hit_pos.get(track_id)
+        if last_p is not None and self.min_travel_m > 0:
+            dx, dy = float(p[0]) - last_p[0], float(p[1]) - last_p[1]
+            if (dx * dx + dy * dy) ** 0.5 < self.min_travel_m:
+                return None
+
+        direction = "in" if (s - prev) * self.inward_sign > 0 else "out"
+        if direction == "in":
+            self.in_count += 1
+        else:
+            self.out_count += 1
+        self._last_hit_frame[track_id] = f
+        self._last_hit_pos[track_id] = (float(p[0]), float(p[1]))
+        return direction
 
 
 class Heatmap:
@@ -186,7 +219,7 @@ class Analytics:
                 self.heat.add(x, y)
 
             for c in self.counters:
-                d = c.update(tid, (x, y))
+                d = c.update(tid, (x, y), frame_idx)
                 if d == "in" and tr.entry_frame is None:
                     tr.entry_frame = frame_idx
                 elif d == "out":

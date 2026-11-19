@@ -83,7 +83,7 @@ def export_npc_tracks(out_dir: str, frames: List[dict], meta: dict,
         "generated_at": _dt.datetime.now().isoformat(timespec="seconds"),
         "meta": {
             "unit": "cm",
-            "coordinate_system": "UE5 左手系：X 前 / Y 右 / Z 上，地面 Z=0",
+            "coordinate_system": "UE5 左手系：X 前（进店 = +X，门洞墙 X=0）/ Y 右 / Z 上，地面 Z=0",
             "fps": meta.get("processed_fps", 25.0),
             "frame_count": meta.get("frame_count", 0),
             "duration_sec": meta.get("duration_sec", 0.0),
@@ -355,9 +355,9 @@ document.getElementById('trkTable').innerHTML =
 
 
 # ---------------------------------------------------------------------------
-# 实时数据接口：只产出数据，不实现任何 UI
+# 实时数据接口：只产出数据，不掺 UI 逻辑
 #
-# 设计原则：UI 侧（由协作者实现）只依赖 realtime.json 一个文件就能做出
+# 设计原则：看板（ui/index.html）只依赖 realtime.json 一个文件就能做出
 # 「跟着视频时间走」的统计面板，不需要读 tracks.json、不需要自己实现
 # 任何统计算法，也不需要改动本管线。帧号 f 与 npc_tracks.json 完全对齐。
 # 字段契约见 docs/realtime_data_contract.md。
@@ -440,7 +440,7 @@ def build_realtime_payload(timeline: dict, meta: dict,
 def export_realtime(out_dir: str, timeline: dict, meta: dict,
                      zone_payload: list | None = None,
                      counter_payload: list | None = None) -> str:
-    """导出 realtime.json —— 给 UI 协作者的唯一实时数据源。"""
+    """导出 realtime.json —— 实时看板的唯一数据源。"""
     _ensure_dir(out_dir)
     payload = build_realtime_payload(timeline, meta, zone_payload, counter_payload)
     path = os.path.join(out_dir, "realtime.json")

@@ -68,23 +68,31 @@ def ground_to_ue(x_m: float, y_m: float, ground_h_m: float,
                  origin_cm=(0.0, 0.0, 0.0), flip_x: bool = False) -> tuple[float, float, float]:
     """地面米制坐标 -> UE5 世界坐标（cm，左手系：X 前 / Y 右 / Z 上）。
 
-    约定：图像坐标系 x 向右、y 向下（远离相机）。映射到 UE 时：
-        UE.X = ground_h_m - y_m   （画面越靠下 = 离相机越近 = UE 里越靠前）
-        UE.Y = x_m
+    UE 的轴正方向是引擎写死的（X 前 / Y 右 / Z 上），不能改，所以映射必须
+    去迁就它，而不是让建模同学在 UE 里转场景。
+
+    约定：x_m 沿门宽方向（画面右为正），y_m 是进深（0 = 柱脚/室外，H = 门洞面）。
+    UE 的 +X 是"前"，也正是人进店的方向：
+        UE.X = y_m - ground_h_m   （进店 = +X；门洞墙 X=0，室外柱脚线 X=-H）
+        UE.Y = x_m                （画面右 = +Y，与 UE 的 +Y 同向）
         UE.Z = 0                  （站在地面）
-    这样在 UE 里摆饭堂时，只要让场景的"远墙"对齐 X=0、"左墙"对齐 Y=0 即可。
+    这样按 UE 默认轴向建门廊即可：门洞墙贴 X=0、室内在 X>0、左柱外沿贴 Y=0，
+    不需要旋转或镜像场景。俯视时 X 指向门内、Y 指向画面右，与视频画面的左右关系一致。
     """
     gx = -x_m if flip_x else x_m
-    ux = (ground_h_m - y_m) * 100.0 + origin_cm[0]
+    ux = (y_m - ground_h_m) * 100.0 + origin_cm[0]
     uy = gx * 100.0 + origin_cm[1]
     uz = 0.0 + origin_cm[2]
     return (float(ux), float(uy), float(uz))
 
 
 def yaw_from_velocity_ue(vx_mps: float, vy_mps: float) -> float:
-    """地面速度 -> UE 里的朝向角（度，绕 Z 轴）。UE 里 X 前 Y 右，yaw 顺时针为正。"""
+    """地面速度 -> UE 里的朝向角（度，绕 Z 轴）。UE 里 X 前 Y 右，yaw 顺时针为正。
+
+    进店（vy > 0）朝 +X -> 0°；出店 -> ±180°；画面右（vx > 0）朝 +Y -> +90°。
+    """
     import math
-    ux, uy = -vy_mps, vx_mps        # 与 ground_to_ue 的轴映射保持一致
+    ux, uy = vy_mps, vx_mps         # 与 ground_to_ue 的轴映射保持一致
     if abs(ux) < 1e-6 and abs(uy) < 1e-6:
         return 0.0
     return float(math.degrees(math.atan2(uy, ux)))

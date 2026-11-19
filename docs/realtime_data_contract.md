@@ -1,7 +1,8 @@
-# 实时数据契约（给 UI 协作者）
+# 实时数据契约（realtime.json）
 
-> 本文档是**视频分析管线与 UI 侧的接口约定**。UI 页面由协作者实现，
-> 本仓库不提供、也不绑定任何实时页面实现。协作者只需要读 `realtime.json` 一个文件。
+> 本文档是**视频分析管线与 UI 的接口约定**。看板由本仓库提供
+> （`ui/index.html`，`tools/build_ui.py` 注入数据生成 `dashboard_live.html`），
+> 页面只读 `realtime.json` 一个文件。要换一套自己的 UI，照本契约实现即可。
 
 ---
 
@@ -10,7 +11,7 @@
 | 谁 | 负责 | 不负责 |
 |---|---|---|
 | 本仓库（视频分析管线） | 检测人、跟踪、透视换算、统计、**导出数据** | 任何 UI / 页面 / 样式 |
-| UI 协作者 | 读 `realtime.json`，做面板、图表、动画、交互 | 不改管线、不自己重算人数 |
+| UI 页面（`ui/`） | 读 `realtime.json`，做面板、图表、动画、交互 | 不改管线、不自己重算人数 |
 | UE5 | 播视频、生成 NPC、**把视频时间喂给 UI** | 统计算法 |
 
 ---
@@ -35,7 +36,8 @@
 | `npc_tracks.json` | 只在「点 UI 高亮某个 UE NPC」时用来查 UE 坐标 | 可选 |
 | `analytics.json` | 最终汇总（写报告用），UI 不用 | ❌ |
 | `tracks.json` / `tracks.csv` | 原始逐帧数据 | ❌ |
-| `dashboard.html` | 管线自带的**离线占位看板**，正式 UI 可直接替换 / 忽略 | ❌ |
+| `dashboard_live.html` | **正式实时看板**（`build_ui.py` 生成，数据内嵌） | ✅ 直接用 |
+| `dashboard.html` | 管线直接生成的离线快照，非实时，写报告用 | ❌ |
 
 ---
 
@@ -172,7 +174,8 @@ Event Tick
  └─ WebBrowser → Execute Javascript("onVideoTime(" + T + ")")
 ```
 
-`onVideoTime` 是 UI 页面暴露的全局函数名，名称由 UI 协作者定，约定好即可。
+`onVideoTime` 是 UI 页面暴露的全局函数名（`ui/index.html` 已实现，固定用这个名字）。
+若自己重写页面，保持同名即可，UE5 侧不用改。
 若 UI 不在 UE5 内嵌而用独立网页，改成 WebSocket / HTTP 轮询推 `T`，
 数据格式完全不变。详见 `docs/ue5_integration.md` 第 5 节。
 
@@ -197,7 +200,7 @@ Event Tick
 | 忽略 `time_offset_sec` | 整体快 / 慢几秒 | 按第 4 节公式减掉 |
 | 用 Tick 累计时间 | 和视频逐渐漂移 | 一律用 `MediaPlayer.GetTime()` |
 | 在蓝图里重算人数 | 口径和报告不一致 | 人数只认 `realtime.json` |
-| 改管线代码适配页面 | 双人协作冲突 | 只改 UI 侧；字段不够就在本契约提需求 |
+| 改管线代码适配页面 | 两边口径会分叉 | 只改 UI 侧；字段不够就在本契约提需求 |
 
 ---
 
@@ -208,4 +211,4 @@ Event Tick
   `meta.source_video` 里有明确标注
 - 正式数据：`python3 -m src.run_pipeline --config configs/entrance_measured.json`
   → `out/entrance/realtime.json`（`out/` 不进仓库）
-- `dashboard.html` 只是管线自带的离线占位看板，与实时 UI 无关，可随时替换
+- `dashboard.html` 是管线直接生成的离线快照；实时看板是 `dashboard_live.html`（`tools/build_ui.py` 生成）

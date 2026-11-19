@@ -83,7 +83,8 @@ class HomographyCfg:
     ground_size_m: list = field(default_factory=lambda: [12.0, 9.0])
     # UE5 落地参数：地面坐标 -> UE 世界坐标（cm）
     ue_origin_cm: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
-    flip_x: bool = False          # 地面 x 轴是否镜像（相机装反了用）
+    # 保留旧字段名兼容已有配置；实际作用是把 UE.Y 取反（场景左右建反时用）
+    flip_x: bool = False
 
 
 @dataclass
@@ -111,7 +112,7 @@ class OutputCfg:
     save_video: bool = True
     save_tracks: bool = True
     save_heatmap: bool = True
-    save_dashboard: bool = True     # 离线占位看板，正式 UI 由协作者实现，可关
+    save_dashboard: bool = True     # 离线快照看板 dashboard.html（非实时），可关
     save_realtime: bool = True      # realtime.json：给 UI 侧的实时数据源
     save_csv: bool = True
     video_scale: float = 1.0

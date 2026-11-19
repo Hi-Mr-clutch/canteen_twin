@@ -71,9 +71,15 @@ def t_foot_point():
 
 def t_ue_mapping():
     ue = homo.ground_to_ue(3.0, 4.0, 9.0)
-    assert ue == (500.0, 300.0, 0.0), ue          # X=(9-4)*100, Y=3*100
-    yaw = homo.yaw_from_velocity_ue(0.0, -1.0)    # 朝画面下方走 = UE 的 +X 方向
-    assert abs(yaw - 90.0) < 1e-6 or abs(yaw) < 1e-6, yaw
+    assert ue == (-500.0, 300.0, 0.0), ue          # X=(4-9)*100, Y=3*100
+    # 进店（y_m 增大）应朝 UE 的 +X
+    assert abs(homo.yaw_from_velocity_ue(0.0, 1.0)) < 1e-6
+    # 出店 = 朝 -X
+    assert abs(abs(homo.yaw_from_velocity_ue(0.0, -1.0)) - 180.0) < 1e-6
+    # 画面右 = UE 的 +Y
+    assert abs(homo.yaw_from_velocity_ue(1.0, 0.0) - 90.0) < 1e-6
+    # 画面左 = UE 的 -Y
+    assert abs(homo.yaw_from_velocity_ue(-1.0, 0.0) + 90.0) < 1e-6
 
 
 def _cfg():

@@ -473,7 +473,7 @@ def main(argv=None):
         dash = exp.export_dashboard(out_dir, summary, track_rows, meta,
                                     heatmap_png=heat_path or "", video_name="annotated.mp4")
 
-    # 实时数据（由 UI 协作者消费，本项目不实现任何实时页面）：
+    # 实时数据（供 ui/index.html 消费；看板另由 tools/build_ui.py 生成）：
     # 与 npc_tracks.json 同源的逐帧时间轴，帧号 f 两边完全对齐。
     realtime_json = None
     if cfg.output.save_realtime:
@@ -510,7 +510,8 @@ def main(argv=None):
         if p:
             print(f"    - {os.path.basename(p):<20} {os.path.getsize(p) / 1024:8.1f} KB")
     if realtime_json:
-        print("  实时数据      : realtime.json → 交给 UI 侧，字段见 docs/realtime_data_contract.md")
+        print("  实时数据      : realtime.json → 看板数据源，字段见 docs/realtime_data_contract.md")
+        print("  实时看板      : python3 tools/build_ui.py 生成 dashboard_live.html")
     print("=" * 62 + "\n")
     return out_dir
 

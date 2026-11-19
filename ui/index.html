@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>饭堂门口人流量 · 数字孪生实时看板</title>
+<!--
+  canteen_twin 实时 HUD（L 型布局）
+
+  布局约定（和 UE5 侧配合）：
+    ┌──────────────────────────────────┬──────────┐
+    │ 顶部横条：标题 / 核心指标 / 时钟   │          │
+    ├──────────────────────────────────┤ 右侧竖栏 │
+    │                                  │ · 视频   │
+    │  左下：UE5 3D 画面区（完全透明）   │ · 指标   │
+    │                                  │ · 曲线   │
+    │                                  │ · 事件流 │
+    └──────────────────────────────────┴──────────┘
+
+  两种运行模式：
+    1) 独立预览（浏览器直接打开）：页面自己播放视频 / 或内部计时模拟，
+       用同一个 render(T) 驱动所有面板，方便在没有 UE5 时验收布局与联动。
+    2) UE5 内嵌（Web Browser 控件铺满全屏 + 勾选透明）：
+       蓝图每 Tick 调 window.onVideoTime(T)，T = MediaPlayer.GetTime()。
+       页面一旦收到该调用立即切到 ue 模式：左下区域变透明，露出 3D 场景，
+       视频画面与所有统计都跟同一个 T 走，和 NPC 天然同帧。
+
+  数据：只依赖 realtime.json（字段契约见 docs/realtime_data_contract.md）。
+  加载优先级：内嵌数据 > 同目录 fetch > 手动选择文件 > 内置演示数据。
+-->
+<style>
+  :root{
+    --top-h: clamp(70px, 8.2vh, 96px);
+    --side-w: clamp(310px, 23.5vw, 410px);
+    --gap: 10px;
+    --bg-panel: rgba(11, 20, 36, .88);
+    --bg-card: rgba(19, 31, 51, .82);
+    --line: rgba(70, 105, 155, .34);
+    --line-soft: rgba(70, 105, 155, .16);
+    --txt: #e9f1fb;
+    --sub: #8ea6c6;
+    --dim: #5f7695;
+    --cyan: #35d0ba;
+    --blue: #4a8cff;
+    --in: #ff9d42;
+    --out: #58a6ff;
+    --hot: #ff5470;
+    --gold: #ffcc55;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ width:100%; height:100%; margin:0; padding:0; }
+  body{
+    background: transparent;                 /* UE 内嵌时整页透明 */
+    color: var(--txt); overflow: hidden;
+    font-family: "Noto Sans CJK SC","Microsoft YaHei","PingFang SC",-apple-system,Segoe UI,system-ui,sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 独立预览给一个背景，便于看清透明区在哪 */
+  body.standalone{ background: radial-gradient(1100px 700px at 32% 20%, #12233d 0%, #080f1c 72%); }
+  button,input{ font-family: inherit; }
+  .num{ font-variant-numeric: tabular-nums; }
+
+  #app{
+    position: fixed; inset: 0;
+    display: grid;
+    grid-template-columns: 1fr var(--side-w);
+    grid-template-rows: var(--top-h) 1fr;
+    grid-template-areas: "top top" "stage side";
+    gap: var(--gap);
+    padding: var(--gap);
+  }
+
+  /* ---------------- 顶部横条 ---------------- */
+  #topbar{
+    grid-area: top;
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex; align-items: center; gap: clamp(14px, 2vw, 34px);
+    padding: 0 clamp(14px, 1.6vw, 26px);
+    box-shadow: 0 6px 26px rgba(0,0,0,.28);
+    min-width: 0;
+  }
+  .brand{ display:flex; align-items:center; gap:12px; flex: 0 0 auto; }
+  .brand .mark{
+    width: 38px; height: 38px; border-radius: 10px; flex:none;
+    background: linear-gradient(145deg, #2ad0b6, #2f7ee0);
+    position: relative; box-shadow: 0 0 18px rgba(53,208,186,.35);
+  }
+  .brand .mark::before,.brand .mark::after{
+    content:""; position:absolute; background: rgba(255,255,255,.9); border-radius:2px;
+  }
+  .brand .mark::before{ left:11px; top:10px; width:5px; height:18px; }
+  .brand .mark::after{ left:20px; top:15px; width:5px; height:13px; }
+  .brand h1{ margin:0; font-size: clamp(14px, 1.12vw, 19px); font-weight: 700; letter-spacing:.6px; white-space:nowrap; }
+  .brand h1 span{ color: var(--cyan); }
+  .brand .sub{ margin-top:2px; font-size: 10.5px; color: var(--dim); letter-spacing:.5px; white-space:nowrap; }
+
+  .top-kpis{ display:flex; gap: clamp(10px, 1.5vw, 30px); flex: 1 1 auto; min-width:0; justify-content:center; }
+  .tk{ min-width: 74px; text-align:center; position:relative; }
+  .tk + .tk::before{ content:""; position:absolute; left: calc(clamp(10px,1.5vw,30px) / -2); top:14%; height:72%; width:1px; background: var(--line-soft); }
+  .tk .k{ font-size: 10.5px; color: var(--sub); letter-spacing:.4px; white-space:nowrap; }
+  .tk .v{ font-size: clamp(21px, 2vw, 32px); font-weight:700; line-height:1.15; margin-top:2px; }
+  .tk .v small{ font-size:11px; font-weight:400; color:var(--dim); margin-left:3px; }
+  .tk.a .v{ color: var(--txt); } .tk.b .v{ color: var(--in); }
+  .tk.c .v{ color: var(--out); } .tk.d .v{ color: var(--cyan); }
+
+  .top-right{ display:flex; align-items:center; gap:14px; flex:0 0 auto; }
+  .clock{ text-align:right; }
+  .clock .t{ font-size: clamp(19px,1.8vw,27px); font-weight:700; color:var(--cyan); line-height:1.1; }
+  .clock .f{ font-size:10.5px; color:var(--dim); margin-top:3px; white-space:nowrap; }
+  .status{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--sub);
+           border:1px solid var(--line); border-radius:999px; padding:6px 11px; white-space:nowrap; }
+  .status i{ width:7px; height:7px; border-radius:50%; background:var(--dim); display:inline-block; }
+  .status.live i{ background:var(--hot); box-shadow:0 0 9px var(--hot); }
+  .status.paused i{ background:var(--gold); }
+
+  /* ---------------- 左下：UE 3D 画面区 ---------------- */
+  #stage{
+    grid-area: stage; position:relative; border-radius:12px;
+    background: transparent; pointer-events:none; overflow:hidden;
+  }
+  /* 四角装饰：UE 模式下也保留，极淡，不挡 3D 画面 */
+  .corner{ position:absolute; width:26px; height:26px; border-color: rgba(90,150,210,.42); border-style:solid; border-width:0; }
+  .corner.tl{ top:8px; left:8px; border-top-width:2px; border-left-width:2px; border-top-left-radius:6px; }
+  .corner.tr{ top:8px; right:8px; border-top-width:2px; border-right-width:2px; border-top-right-radius:6px; }
+  .corner.bl{ bottom:8px; left:8px; border-bottom-width:2px; border-left-width:2px; border-bottom-left-radius:6px; }
+  .corner.br{ bottom:8px; right:8px; border-bottom-width:2px; border-right-width:2px; border-bottom-right-radius:6px; }
+  .stage-tag{
+    position:absolute; top:16px; left:20px; font-size:11px; letter-spacing:1.2px;
+    color: rgba(150,190,230,.62); text-transform:uppercase;
+  }
+  .stage-tag b{ display:block; font-size:13px; letter-spacing:.5px; color: rgba(190,220,250,.78); font-weight:600; margin-top:3px; }
+  /* 独立预览时的占位说明，UE 模式下完全隐藏 */
+  .stage-hint{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:10px; text-align:center;
+  }
+  .stage-hint .ring{
+    width: 96px; height:96px; border-radius:50%; border:1px solid rgba(90,150,210,.32);
+    display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .stage-hint .ring::after{ content:""; width:52px; height:52px; border-radius:50%; border:1px dashed rgba(90,150,210,.36); }
+  .stage-hint .ring span{ position:absolute; font-size:10px; color:var(--sub); letter-spacing:1px; }
+  .stage-hint .h1{ font-size:16px; color:#bcd2ee; font-weight:600; letter-spacing:.5px; }
+  .stage-hint .h2{ font-size:12px; color:var(--dim); line-height:1.9; max-width:420px; }
+  .stage-hint .h2 code{ color:var(--cyan); background:rgba(53,208,186,.08); padding:1px 5px; border-radius:4px; }
+  body:not(.standalone) .stage-hint{ display:none; }
+  body:not(.standalone) #stage{ background:transparent; }
+  body.standalone #stage{
+    background:
+      linear-gradient(rgba(70,120,180,.07) 1px, transparent 1px) 0 0 / 44px 44px,
+      linear-gradient(90deg, rgba(70,120,180,.07) 1px, transparent 1px) 0 0 / 44px 44px,
+      rgba(9,17,30,.5);
+    border:1px solid var(--line-soft);
+  }
+
+  /* ---------------- 右侧竖栏 ---------------- */
+  #sidebar{
+    grid-area: side; min-height:0; display:flex; flex-direction:column; gap:var(--gap);
+    overflow-y:auto; overflow-x:hidden; padding-right:2px;
+  }
+  #sidebar::-webkit-scrollbar{ width:4px; }
+  #sidebar::-webkit-scrollbar-thumb{ background:#263a58; border-radius:2px; }
+  .card{
+    background: var(--bg-panel); border:1px solid var(--line); border-radius:12px;
+    padding: 11px 13px; box-shadow: 0 5px 20px rgba(0,0,0,.22); min-height:0;
+  }
+  .card h2{ margin:0 0 9px; font-size:11.5px; font-weight:600; color:#c6daf3; letter-spacing:.6px;
+            display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card h2 em{ font-style:normal; font-size:10px; color:var(--dim); font-weight:400; letter-spacing:0; }
+
+  /* 视频卡 */
+  #videoCard{ flex:0 0 auto; }
+  #videoWrap{
+    position:relative; width:100%; height: clamp(120px, 15vh, 176px);
+    background:#060b14; border:1px solid var(--line-soft); border-radius:8px; overflow:hidden;
+  }
+  #videoWrap video{ width:100%; height:100%; object-fit:contain; display:block; background:#060b14; }
+  #videoWrap .vtag{
+    position:absolute; top:7px; left:8px; font-size:9.5px; letter-spacing:.8px;
+    background:rgba(6,12,22,.72); border:1px solid var(--line); border-radius:4px;
+    padding:3px 7px; color:#b9d2ef;
+  }
+  #videoWrap .vtag i{ display:inline-block; width:6px; height:6px; border-radius:50%;
+                      background:var(--hot); margin-right:5px; vertical-align:1px; }
+  #videoWrap .novideo{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:7px; text-align:center; color:var(--dim); font-size:11.5px; padding:14px;
+  }
+  #videoWrap .novideo b{ color:#9fb9d8; font-size:12.5px; font-weight:600; }
+  .vctl{ display:flex; align-items:center; gap:8px; margin-top:9px; }
+  .btn{
+    background:#1a2b45; color:#cfe0f7; border:1px solid var(--line); border-radius:6px;
+    font-size:11px; padding:5px 10px; cursor:pointer; white-space:nowrap; line-height:1.4;
+  }
+  .btn:hover{ background:#23395c; }
+  .btn.primary{ background:#1d5f6b; border-color:#2b8b8b; color:#dffff8; }
+  #seek{ flex:1 1 auto; min-width:40px; accent-color: var(--cyan); height:4px; cursor:pointer; }
+  .vtime{ font-size:10.5px; color:var(--sub); white-space:nowrap; }
+
+  /* 补充指标 */
+  #miniCard{ flex:0 0 auto; }
+  .mini{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .mini > div{ background:var(--bg-card); border:1px solid var(--line-soft); border-radius:8px; padding:8px 9px; }
+  .mini .k{ font-size:10px; color:var(--sub); white-space:nowrap; }
+  .mini .v{ font-size:19px; font-weight:700; margin-top:2px; line-height:1.2; }
+  .mini .v small{ font-size:10px; font-weight:400; color:var(--dim); margin-left:2px; }
+
+  /* 曲线 */
+  #curveCard{ flex:0 0 auto; }
+  #curve{ width:100%; height: clamp(78px, 10vh, 118px); display:block; }
+  .legend{ display:flex; gap:12px; font-size:10px; color:var(--dim); margin-top:4px; flex-wrap:wrap; }
+  .legend i{ width:8px; height:8px; border-radius:2px; display:inline-block; margin-right:4px; vertical-align:-1px; }
+
+  /* 俯视点位 */
+  #planCard{ flex:0 0 auto; }
+  #plan{ width:100%; height: clamp(66px, 8.6vh, 100px); display:block; }
+
+  /* 事件流（吃掉剩余高度，可滚动） */
+  #eventCard{ flex:1 1 auto; display:flex; flex-direction:column; min-height:150px; position:relative; }
+  #eventCard::after{
+    content:""; position:absolute; left:1px; right:1px; bottom:1px; height:16px;
+    background:linear-gradient(to top, rgba(11,20,36,.96), rgba(11,20,36,0));
+    pointer-events:none; border-radius:0 0 12px 12px;
+  }
+  #eventList{ list-style:none; margin:0; padding:0 3px 0 0; overflow-y:auto; flex:1 1 auto; min-height:0; }
+  #eventList::-webkit-scrollbar{ width:5px; }
+  #eventList::-webkit-scrollbar-thumb{ background:#2b4264; border-radius:3px; }
+  #eventList li{
+    display:flex; align-items:center; gap:8px; padding:6px 7px; margin-bottom:5px;
+    background:var(--bg-card); border:1px solid var(--line-soft); border-left:3px solid var(--dim);
+    border-radius:6px; font-size:11px;
+  }
+  #eventList li.t-in{ border-left-color:var(--in); }
+  #eventList li.t-out{ border-left-color:var(--out); }
+  #eventList li.t-new{ border-left-color:#42597c; }
+  #eventList li.fresh{ animation:flashIn .8s ease-out; }
+  @keyframes flashIn{ 0%{ background:rgba(255,157,66,.30); } 100%{ background:var(--bg-card); } }
+  #eventList .et{ color:var(--dim); width:52px; flex:none; }
+  #eventList .tag{ padding:1px 6px; border-radius:999px; font-size:10px; font-weight:600; flex:none; }
+  .t-in .tag{ background:rgba(255,157,66,.16); color:var(--in); }
+  .t-out .tag{ background:rgba(88,166,255,.16); color:var(--out); }
+  .t-new .tag{ background:rgba(120,145,180,.14); color:#9db2ce; }
+  #eventList .who{ color:#c9dcf3; }
+  #eventList .cnt{ color:var(--dim); margin-left:auto; font-size:10px; }
+
+  /* 数据加载遮罩 */
+  #loading{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background:rgba(6,12,22,.9); z-index:50; text-align:center; padding:24px;
+  }
+  #loading .box{ max-width:520px; }
+  #loading h3{ margin:0 0 10px; font-size:17px; color:#dbe9fa; }
+  #loading p{ margin:0 0 16px; font-size:12.5px; color:var(--sub); line-height:1.9; }
+  #loading code{ color:var(--cyan); }
+  .hidden{ display:none !important; }
+
+  /* 数字跳动 */
+  .bump{ animation: bump .45s ease-out; }
+  @keyframes bump{ 0%{ transform:scale(1.22); filter:brightness(1.6); } 100%{ transform:scale(1); filter:none; } }
+
+  /* UE 模式：视频可由 UE 的 Media Texture 透出，隐藏页面内 video */
+  body.ext-video #videoWrap video{ visibility:hidden; }
+  body.ext-video #videoWrap{ background:transparent; border-color:transparent; }
+  body.ext-video #videoWrap .novideo{ display:none; }
+</style>
+</head>
+<body class="standalone">
+
+<div id="app">
+  <!-- 顶部横条 -->
+  <header id="topbar">
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>学校饭堂门口 · 人流量 <span>数字孪生</span></h1>
+        <div class="sub">CANTEEN ENTRANCE / PEOPLE FLOW TWIN</div>
+      </div>
+    </div>
+
+    <div class="top-kpis">
+      <div class="tk a"><div class="k">当前画面人数</div><div class="v num" id="kCount">0</div></div>
+      <div class="tk b"><div class="k">累计进店</div><div class="v num" id="kIn">0</div></div>
+      <div class="tk c"><div class="k">累计出店</div><div class="v num" id="kOut">0</div></div>
+      <div class="tk d"><div class="k">累计人数</div><div class="v num" id="kPeople">0</div></div>
+    </div>
+
+    <div class="top-right">
+      <div class="status" id="status"><i></i><span id="statusTxt">待机</span></div>
+      <div class="clock">
+        <div class="t num" id="clockT">0.00s</div>
+        <div class="f num" id="clockF">f 0 / 0</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 左下：UE5 3D 画面区（透明） -->
+  <main id="stage">
+    <span class="corner tl"></span><span class="corner tr"></span>
+    <span class="corner bl"></span><span class="corner br"></span>
+    <div class="stage-tag">DIGITAL TWIN VIEWPORT<b>UE5 数字孪生场景</b></div>
+    <div class="stage-hint">
+      <div class="ring"><span>3D</span></div>
+      <div class="h1">UE5 三维画面区</div>
+      <div class="h2">
+        这一整块在 UE5 内嵌时是<b>完全透明</b>的，露出底下的门廊场景与 NPC。<br/>
+        蓝图每 Tick 调 <code>onVideoTime(T)</code> 后自动切换，NPC 与面板共用同一个时钟。
+      </div>
+    </div>
+  </main>
+
+  <!-- 右侧竖栏 -->
+  <aside id="sidebar">
+
+    <section class="card" id="videoCard">
+      <h2>监控画面 <em id="videoName">回放视频</em></h2>
+      <div id="videoWrap">
+        <video id="video" playsinline muted preload="metadata"></video>
+        <span class="vtag"><i></i>CAM 01 / 门口</span>
+        <div class="novideo" id="noVideo">
+          <b>视频未加载</b>
+          <span>可点击「选视频」加载本地 mp4；没有视频也不影响数据面板联动</span>
+        </div>
+      </div>
+      <div class="vctl">
+        <button class="btn primary" id="btnPlay">播放</button>
+        <input type="range" id="seek" min="0" max="1000" value="0" step="1"/>
+        <span class="vtime num" id="vtime">00:00 / 00:00</span>
+        <button class="btn" id="btnFile">选视频</button>
+        <input type="file" id="fileInput" accept="video/*" class="hidden"/>
+        <button class="btn" id="btnData">选数据</button>
+        <input type="file" id="dataInput" accept=".json,application/json" class="hidden"/>
+      </div>
+    </section>
+
+    <section class="card" id="miniCard">
+      <h2>补充指标 <em>截至当前帧</em></h2>
+      <div class="mini">
+        <div><div class="k">峰值同框</div><div class="v num" id="mPeak" style="color:var(--gold)">0</div></div>
+        <div><div class="k">净流入</div><div class="v num" id="mNet" style="color:var(--cyan)">0</div></div>
+        <div><div class="k">门前占用</div><div class="v num" id="mZone" style="color:var(--blue)">0</div></div>
+      </div>
+    </section>
+
+    <section class="card" id="curveCard">
+      <h2>画面内人数曲线 <em id="curveInfo">逐帧</em></h2>
+      <canvas id="curve"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--cyan)"></i>已播放</span>
+        <span><i style="background:#2b3d59"></i>未播放</span>
+        <span><i style="background:var(--gold)"></i>峰值</span>
+      </div>
+    </section>
+
+    <section class="card" id="planCard">
+      <h2>门前俯视点位 <em id="planInfo">↑ 进店方向 = UE +X</em></h2>
+      <canvas id="plan"></canvas>
+    </section>
+
+    <section class="card" id="eventCard">
+      <h2>实时事件流 <em id="eventInfo">最新在上</em></h2>
+      <ul id="eventList"></ul>
+    </section>
+
+  </aside>
+</div>
+
+<div id="loading">
+  <div class="box">
+    <h3 id="loadingTitle">正在加载实时数据…</h3>
+    <p id="loadingMsg">
+      优先读取内嵌数据或同目录的 <code>realtime.json</code>。<br/>
+      若都没有，会自动改用内置演示数据，方便先验收布局。
+    </p>
+    <button class="btn" id="btnLoadData">手动选择 realtime.json</button>
+    <input type="file" id="loadInput" accept=".json,application/json" class="hidden"/>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* BEGIN_DATA */
+  var EMBEDDED = null;   /* tools/build_ui.py 会把这一行替换成真实数据 */
+  /* END_DATA */
+
+  var DEFAULT_VIDEO = (typeof window.__UI_VIDEO_SRC__ === 'string') ? window.__UI_VIDEO_SRC__ : 'annotated.mp4';
+
+  var S = {
+    data: null, mode: 'standalone', T: 0, lastF: -1,
+    playing: false, raf: 0, lastTick: 0, extClock: false,
+    videoReady: false, bounds: null, duration: 0, snapshot: null
+  };
+
+  function $(id){ return document.getElementById(id); }
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  function fmtTime(s){
+    if (!isFinite(s) || s < 0) s = 0;
+    return pad2(Math.floor(s / 60)) + ':' + pad2(Math.floor(s % 60));
+  }
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+  /* ---------- 内置演示数据（没有 realtime.json 时也能验收布局） ---------- */
+  function makeDemo(){
+    var fps = 25, n = 300, seed = 20251120;
+    function rnd(){ seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    var frames = [], events = [], inC = 0, outC = 0, people = 0, peak = 0;
+    for (var f = 0; f < n; f++){
+      var t = f / fps;
+      var count = Math.max(0, Math.round(6 + 5 * Math.sin(f / 22) + 3 * Math.sin(f / 7.3)));
+      var ev = [];
+      if (f > 0 && rnd() < 0.16){
+        people++; var e1 = {f:f, t:Math.round(t*1000)/1000, type:'new', id:people, counter:''};
+        events.push(e1); ev.push(e1);
+      }
+      if (f > 3 && rnd() < 0.11){
+        inC++; var e2 = {f:f, t:Math.round(t*1000)/1000, type:'in', id:1 + Math.floor(rnd()*Math.max(people,1)), counter:'door'};
+        events.push(e2); ev.push(e2);
+      }
+      if (f > 3 && rnd() < 0.06){
+        outC++; var e3 = {f:f, t:Math.round(t*1000)/1000, type:'out', id:1 + Math.floor(rnd()*Math.max(people,1)), counter:'door'};
+        events.push(e3); ev.push(e3);
+      }
+      peak = Math.max(peak, count);
+      var acts = [];
+      for (var i = 0; i < Math.min(count, 10); i++){
+        acts.push({id:i+1, x_m: Math.round((0.2 + rnd()*7.2 - 1.2)*100)/100,
+                        y_m: Math.round((rnd()*4.4 - 1.2)*100)/100});
+      }
+      frames.push({f:f, t:Math.round(t*1000)/1000, count:count, in:inC, out:outC,
+                   people:people, peak:peak, net:inC-outC,
+                   zones:{porch:Math.min(count, Math.round(rnd()*4))},
+                   actors:acts, events:ev});
+    }
+    return {
+      schema: 'canteen-twin/realtime@1.0(内置演示)',
+      generated_at: '', source_label: '内置演示数据（非真实视频结果）',
+      meta: {source_video:'demo.mp4', detector:'demo', fps:fps, frame_count:n,
+             duration_sec:Math.round(n/fps*1000)/1000, time_offset_sec:0,
+             frame_width:1280, frame_height:720, length_unit:'m'},
+      ground_m:[4.47, 2.13], zone_names:['porch'],
+      zones:[{name:'porch', label:'门前平台',
+              polygon_m:[[0,0],[4.47,0],[3.87,2.13],[0.6,2.13]], color:[60,170,255]}],
+      counters:[{name:'door', p1:[0.6,2.13], p2:[3.87,2.13], inward_sign:1}],
+      frames:frames, events:events
+    };
+  }
+
+  /* ---------- 数据装载 ---------- */
+  function setData(d){
+    if (!d || !d.meta || !d.frames || !d.frames.length){
+      $('loadingTitle').textContent = '数据格式不对';
+      $('loadingMsg').innerHTML = '缺少 <code>meta</code> 或 <code>frames</code>，请选择管线导出的 <code>realtime.json</code>。';
+      return;
+    }
+    S.data = d;
+    var m = d.meta;
+    S.duration = (m.duration_sec || (m.frame_count / (m.fps || 25))) || 10;
+    S.lastF = -1;
+    S.bounds = computeBounds(d);
+    $('clockF').textContent = 'f 0 / ' + m.frame_count;
+    $('curveInfo').textContent = (m.fps ? m.fps.toFixed(2) : '?') + ' fps · ' + m.frame_count + ' 帧';
+    var label = d.source_label || (m.source_video || 'realtime.json');
+    label = String(label).split(/[\\/]/).pop();
+    /* 手机/相机导出的原始文件名常是长数字串 + 哈希，显示出来没意义 */
+    if (!label || /^\d{10,}/.test(label) || label.length > 28) label = '门口监控回放';
+    $('videoName').textContent = label;
+    $('eventInfo').textContent = (d.events ? d.events.length : 0) + ' 条事件';
+    $('loading').classList.add('hidden');
+    render(S.T);
+  }
+
+  function computeBounds(d){
+    /* 用 2%~98% 分位定视野：实测数据有大量透视外推点，用 min/max 会把门廊压成一个点 */
+    var xs = [], ys = [], i, j, a;
+    for (i = 0; i < d.frames.length; i += 2){
+      a = d.frames[i].actors || [];
+      for (j = 0; j < a.length; j++){ xs.push(a[j].x_m); ys.push(a[j].y_m); }
+    }
+    if (!xs.length){ xs = [0, d.ground_m[0]]; ys = [0, d.ground_m[1]]; }
+    xs.sort(function(p, q){ return p - q; });
+    ys.sort(function(p, q){ return p - q; });
+    function q(arr, p){
+      if (!arr.length) return 0;
+      return arr[Math.min(arr.length - 1, Math.max(0, Math.floor(arr.length * p)))];
+    }
+    var xmin = Math.min(q(xs, .02), 0), xmax = Math.max(q(xs, .98), d.ground_m[0]);
+    var ymin = Math.min(q(ys, .02), 0), ymax = Math.max(q(ys, .98), d.ground_m[1]);
+    var pad = Math.max(0.35, (xmax - xmin) * 0.06);
+    return {xmin:xmin-pad, xmax:xmax+pad, ymin:ymin-pad, ymax:ymax+pad};
+  }
+
+  /* ---------- 帧定位（数据契约第 4 节唯一公式） ---------- */
+  function frameFromT(T){
+    var m = S.data.meta, fps = m.fps || 25, off = m.time_offset_sec || 0;
+    return clamp(Math.floor((T - off) * fps), 0, m.frame_count - 1);
+  }
+
+  function setNum(el, v, old){
+    if (old !== undefined && String(v) !== String(old)){
+      el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    }
+    el.textContent = v;
+  }
+
+  /* ---------- 主渲染：所有面板只认 frames[f]，绝不在前端累加 ---------- */
+  function render(T){
+    if (!S.data) return;
+    var f = frameFromT(T);
+    if (f === S.lastF) return;
+    S.lastF = f;
+    var snap = S.data.frames[f] || S.data.frames[S.data.frames.length - 1];
+    S.snapshot = snap;
+
+    setNum($('kCount'), snap.count, $('kCount')._v);  $('kCount')._v = snap.count;
+    setNum($('kIn'),    snap.in,    $('kIn')._v);     $('kIn')._v = snap.in;
+    setNum($('kOut'),   snap.out,   $('kOut')._v);    $('kOut')._v = snap.out;
+    setNum($('kPeople'),snap.people,$('kPeople')._v); $('kPeople')._v = snap.people;
+    $('mPeak').textContent = snap.peak;
+    $('mNet').textContent = (snap.net > 0 ? '+' : '') + snap.net;
+    var zk = S.data.zone_names && S.data.zone_names.length ? S.data.zone_names[0] : '';
+    $('mZone').textContent = (zk && snap.zones) ? (snap.zones[zk] || 0) : 0;
+
+    $('clockT').textContent = T.toFixed(2) + 's';
+    $('clockF').textContent = 'f ' + f + ' / ' + S.data.meta.frame_count;
+    if (!S.extClock){
+      var sk = $('seek');
+      if (document.activeElement !== sk) sk.value = String(Math.round(T / S.duration * 1000));
+      $('vtime').textContent = fmtTime(T) + ' / ' + fmtTime(S.duration);
+    } else {
+      $('vtime').textContent = fmtTime(T) + ' / ' + fmtTime(S.duration);
+    }
+
+    drawCurve(f);
+    drawPlan(snap);
+    drawEvents(f, snap);
+  }
+
+  /* ---------- 人数曲线 ---------- */
+  function drawCurve(f){
+    var c = $('curve'), ctx = c.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return;
+    if (c.width !== Math.round(W*dpr) || c.height !== Math.round(H*dpr)){
+      c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
+    }
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    var frames = S.data.frames, n = frames.length;
+    var maxY = 1, i;
+    for (i = 0; i < n; i++) if (frames[i].count > maxY) maxY = frames[i].count;
+    maxY = maxY * 1.18;
+    var pad = {l:26, r:8, t:8, b:16};
+    var X = function(k){ return pad.l + (W-pad.l-pad.r) * (k / Math.max(n-1,1)); };
+    var Y = function(v){ return H-pad.b - (H-pad.t-pad.b) * (v/maxY); };
+
+    ctx.strokeStyle = 'rgba(70,105,155,.18)'; ctx.lineWidth = 1;
+    for (i = 0; i <= 3; i++){
+      var yy = pad.t + (H-pad.t-pad.b)*i/3;
+      ctx.beginPath(); ctx.moveTo(pad.l,yy); ctx.lineTo(W-pad.r,yy); ctx.stroke();
+    }
+    ctx.font = '9px system-ui'; ctx.fillStyle = '#5f7695';
+    ctx.fillText(String(Math.round(maxY)), 3, pad.t+7);
+    ctx.fillText('0', 3, H-pad.b);
+
+    /* 未播放区间留灰 */
+    ctx.fillStyle = 'rgba(43,61,89,.34)';
+    ctx.fillRect(X(f), pad.t, Math.max(0, (W-pad.r) - X(f)), H-pad.t-pad.b);
+
+    /* 全量灰线 + 已播放青线 */
+    ctx.beginPath();
+    for (i = 0; i < n; i++){ var px=X(i), py=Y(frames[i].count); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+    ctx.strokeStyle = 'rgba(90,120,160,.35)'; ctx.lineWidth = 1; ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(pad.l, 0, Math.max(0, X(f)-pad.l+1), H); ctx.clip();
+    var g = ctx.createLinearGradient(0,pad.t,0,H-pad.b);
+    g.addColorStop(0,'rgba(53,208,186,.42)'); g.addColorStop(1,'rgba(53,208,186,0)');
+    ctx.beginPath(); ctx.moveTo(pad.l, H-pad.b);
+    for (i = 0; i <= f; i++) ctx.lineTo(X(i), Y(frames[i].count));
+    ctx.lineTo(X(f), H-pad.b); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath();
+    for (i = 0; i <= f; i++){ var qx=X(i), qy=Y(frames[i].count); i?ctx.lineTo(qx,qy):ctx.moveTo(qx,qy); }
+    ctx.strokeStyle = '#35d0ba'; ctx.lineWidth = 1.8; ctx.stroke();
+    ctx.restore();
+
+    /* 当前点 */
+    ctx.beginPath(); ctx.arc(X(f), Y(frames[f].count), 3.4, 0, 6.284);
+    ctx.fillStyle = '#eafff9'; ctx.fill();
+  }
+
+  /* ---------- 门前俯视点位（米制，y 越大越靠上 = 进店方向 = UE +X） ---------- */
+  function drawPlan(snap){
+    var c = $('plan'), ctx = c.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return;
+    if (c.width !== Math.round(W*dpr) || c.height !== Math.round(H*dpr)){
+      c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
+    }
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,W,H);
+    var b = S.bounds, pad = 9;
+    var PX = function(x){ return pad + (W-2*pad) * (x - b.xmin)/(b.xmax-b.xmin); };
+    var PY = function(y){ return H-pad - (H-2*pad) * (y - b.ymin)/(b.ymax-b.ymin); };
+
+    /* 区域多边形 */
+    var zs = S.data.zones || [];
+    for (var z = 0; z < zs.length; z++){
+      var poly = zs[z].polygon_m || [];
+      if (poly.length < 3) continue;
+      ctx.beginPath();
+      for (var p = 0; p < poly.length; p++){
+        var ax=PX(poly[p][0]), ay=PY(poly[p][1]);
+        p?ctx.lineTo(ax,ay):ctx.moveTo(ax,ay);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(53,130,220,.18)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(74,140,255,.75)'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    /* 门洞计数线 */
+    var cs = S.data.counters || [];
+    for (var k = 0; k < cs.length; k++){
+      ctx.beginPath(); ctx.moveTo(PX(cs[k].p1[0]), PY(cs[k].p1[1]));
+      ctx.lineTo(PX(cs[k].p2[0]), PY(cs[k].p2[1]));
+      ctx.strokeStyle = '#ffcc55'; ctx.lineWidth = 2; ctx.setLineDash([4,3]); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    /* 人 */
+    var acts = snap.actors || [];
+    for (var i = 0; i < acts.length; i++){
+      var x = PX(acts[i].x_m), y = PY(acts[i].y_m);
+      if (x < 0 || x > W || y < 0 || y > H) continue;
+      ctx.beginPath(); ctx.arc(x, y, 2.8, 0, 6.284);
+      ctx.fillStyle = 'rgba(53,208,186,.92)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(6,20,26,.7)'; ctx.lineWidth = .7; ctx.stroke();
+    }
+    ctx.font = '9px system-ui'; ctx.fillStyle = '#5f7695';
+    ctx.fillText('门外 / 相机侧', pad, H-1);
+  }
+
+  /* ---------- 事件流 ---------- */
+  var TYPE_TXT = {in:'进店', out:'出店', new:'新目标'};
+  function drawEvents(f, snap){
+    var evs = S.data.events || [];
+    var i = evs.length - 1, out = [];
+    while (i >= 0 && evs[i].f > f) i--;
+    while (i >= 0 && out.length < 16){ out.push(evs[i]); i--; }
+    var html = '';
+    for (var j = 0; j < out.length; j++){
+      var e = out[j];
+      var fresh = (e.f === f) ? ' fresh' : '';
+      html += '<li class="t-' + e.type + fresh + '">'
+            + '<span class="et num">' + e.t.toFixed(1) + 's</span>'
+            + '<span class="tag">' + (TYPE_TXT[e.type] || e.type) + '</span>'
+            + '<span class="who">#' + e.id + '</span>'
+            + '<span class="cnt">' + (e.counter || '') + '</span></li>';
+    }
+    if (!out.length) html = '<li class="t-new"><span class="who" style="color:var(--dim)">暂无事件</span></li>';
+    $('eventList').innerHTML = html;
+  }
+
+  /* ---------- 时钟：独立预览 ---------- */
+  function loop(ts){
+    if (!S.playing || S.extClock) return;
+    var v = $('video');
+    if (S.videoReady && v && !v.paused && isFinite(v.currentTime)){
+      S.T = v.currentTime;
+    } else {
+      if (!S.lastTick) S.lastTick = ts;
+      var dt = Math.min(0.1, (ts - S.lastTick)/1000);
+      S.lastTick = ts;
+      S.T += dt;
+      if (S.T > S.duration) S.T = 0;
+    }
+    render(S.T);
+    S.raf = requestAnimationFrame(loop);
+  }
+  function play(){
+    if (S.playing) return;
+    S.playing = true; S.lastTick = 0;
+    $('btnPlay').textContent = '暂停';
+    setStatus('live', S.extClock ? 'UE5 时钟' : '回放中');
+    var v = $('video');
+    if (S.videoReady && v && !S.extClock){ var pr = v.play(); if (pr && pr.catch) pr.catch(function(){}); }
+    S.raf = requestAnimationFrame(loop);
+  }
+  function pause(){
+    S.playing = false;
+    $('btnPlay').textContent = '播放';
+    setStatus('paused', '已暂停');
+    cancelAnimationFrame(S.raf);
+    var v = $('video'); if (v && !v.paused) v.pause();
+  }
+  function setStatus(cls, txt){
+    $('status').className = 'status ' + cls;
+    $('statusTxt').textContent = txt;
+  }
+
+  /* ---------- UE5 接口：单一时钟入口 ---------- */
+  function onVideoTime(T){
+    T = Number(T);
+    if (!isFinite(T) || T < 0) T = 0;
+    if (!S.extClock){
+      S.extClock = true;
+      S.mode = 'ue';
+      document.body.className = (document.body.className.replace(/\bstandalone\b/,'') + ' ue-mode').replace(/\s+/g,' ').trim();
+      setStatus('live', 'UE5 时钟');
+      $('btnPlay').textContent = '跟随 UE';
+    }
+    S.T = T;
+    syncVideo(T);
+    render(T);
+  }
+  function syncVideo(T){
+    var v = $('video');
+    if (!S.videoReady || !v || !isFinite(v.duration)) return;
+    if (Math.abs(v.currentTime - T) > 0.28){
+      try { v.currentTime = clamp(T, 0, Math.max(0, v.duration - 0.02)); } catch(e){}
+    }
+  }
+  function setMode(mode){
+    if (mode === 'ue') onVideoTime(S.T);
+    else { S.extClock = false; S.mode = 'standalone'; document.body.className = 'standalone'; }
+  }
+  function setVideoSrc(src){
+    var v = $('video');
+    v.src = src;
+    S.videoReady = false;
+  }
+  function useExternalVideo(on){
+    document.body.className = document.body.className.replace(/\bext-video\b/,'');
+    if (on) document.body.className += ' ext-video';
+  }
+
+  /* 对外 API：蓝图/协作者可用 */
+  window.onVideoTime = onVideoTime;
+  window.CanteenTwin = {
+    onVideoTime: onVideoTime,
+    setData: setData,
+    setMode: setMode,
+    setVideoSrc: setVideoSrc,
+    useExternalVideo: useExternalVideo,
+    play: play, pause: pause,
+    getState: function(){ return {mode:S.mode, T:S.T, f:S.lastF, playing:S.playing,
+                                  frames: S.data ? S.data.meta.frame_count : 0}; }
+  };
+
+  /* ---------- 视频 ---------- */
+  function initVideo(){
+    var v = $('video');
+    v.addEventListener('loadedmetadata', function(){
+      S.videoReady = true;
+      $('noVideo').classList.add('hidden');
+      if (isFinite(v.duration)) S.duration = Math.max(S.duration, v.duration);
+    });
+    v.addEventListener('error', function(){
+      S.videoReady = false;
+      var code = v.error ? v.error.code : 0;
+      var hint = '浏览器无法解码这个视频。若是 mp4v 编码，转成 H.264 即可，'
+               + '或在 UE5 里改用 Media Texture 播放（CanteenTwin.useExternalVideo(true)）。';
+      if (code === 4){
+        hint = '当前编码不被浏览器支持（管线输出的 annotated.mp4 常见为 mp4v）。'
+             + '转成 H.264：ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p out.mp4';
+      }
+      $('noVideo').querySelector('b').textContent = '视频无法播放';
+      $('noVideo').querySelector('span').textContent = hint;
+      $('noVideo').classList.remove('hidden');
+    });
+    v.addEventListener('ended', function(){ if (!S.extClock) pause(); });
+    /* 独立预览下默认尝试同目录视频；失败就靠内部计时驱动，不影响面板 */
+    v.src = DEFAULT_VIDEO;
+    setTimeout(function(){
+      if (!S.videoReady) $('noVideo').classList.remove('hidden');
+    }, 1400);
+  }
+
+  /* ---------- 控件 ---------- */
+  $('btnPlay').addEventListener('click', function(){
+    if (S.extClock){ setStatus('live','UE5 时钟'); return; }
+    S.playing ? pause() : play();
+  });
+  $('seek').addEventListener('input', function(){
+    var T = Number(this.value) / 1000 * S.duration;
+    S.T = T; S.lastF = -1;
+    if (S.videoReady) { try { $('video').currentTime = T; } catch(e){} }
+    render(T);
+  });
+  $('btnFile').addEventListener('click', function(){ $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function(){
+    if (!this.files || !this.files[0]) return;
+    setVideoSrc(URL.createObjectURL(this.files[0]));
+    $('videoName').textContent = this.files[0].name;
+  });
+  function readJsonFile(file){
+    var fr = new FileReader();
+    fr.onload = function(){
+      try { setData(JSON.parse(fr.result)); }
+      catch(e){ $('loadingTitle').textContent = 'JSON 解析失败'; $('loadingMsg').textContent = String(e); }
+    };
+    fr.readAsText(file);
+  }
+  $('btnData').addEventListener('click', function(){ $('dataInput').click(); });
+  $('dataInput').addEventListener('change', function(){ if (this.files[0]) readJsonFile(this.files[0]); });
+  $('btnLoadData').addEventListener('click', function(){ $('loadInput').click(); });
+  $('loadInput').addEventListener('change', function(){ if (this.files[0]) readJsonFile(this.files[0]); });
+  window.addEventListener('resize', function(){ if (S.data){ S.lastF = -1; render(S.T); } });
+
+  /* ---------- 启动 ---------- */
+  function boot(){
+    initVideo();
+
+    function autoPlay(delay){
+      setTimeout(function(){ if (!S.extClock && !S.playing) play(); }, delay);
+    }
+
+    if (EMBEDDED){
+      /* 成品页：数据已内嵌，file:// 直接打开也能跑，无 fetch、无跨域问题 */
+      setData(EMBEDDED);
+      autoPlay(600);
+      return;
+    }
+
+    /* 模板页：先试同目录 realtime.json（需 http 服务），失败退回内置演示数据 */
+    fetch('realtime.json', {cache:'no-store'})
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(d){
+        setData(d);
+        autoPlay(900);
+      })
+      .catch(function(){
+        setData(makeDemo());
+        $('loadingTitle').textContent = '未找到 realtime.json，已切换到内置演示数据';
+        $('loadingMsg').innerHTML = '正式使用时把 <code>realtime.json</code> 放到本页同目录，'
+          + '或用 <code>tools/build_ui.py</code> 生成内嵌数据的成品页。';
+        $('loading').classList.remove('hidden');
+        setTimeout(function(){ $('loading').classList.add('hidden'); play(); }, 1800);
+      });
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

@@ -10,14 +10,14 @@ cd "$(dirname "$0")/.."
 VIDEO="${1:-}"
 CONFIG="${2:-configs/entrance_measured.json}"
 
-echo "==> 0/3 检查运行环境"
+echo "==> 0/4 检查运行环境"
 python3 -c "import cv2, numpy, scipy; print('   opencv', cv2.__version__, '| numpy', numpy.__version__)" 2>/dev/null || {
   echo "   缺少依赖，先跑：pip install -r requirements.txt"; exit 1; }
 python3 -c "import ultralytics; print('   ultralytics', ultralytics.__version__)" 2>/dev/null \
   || echo "   [warn] 没装 ultralytics，YOLO 不可用，会自动降级到前景差分"
 
 echo
-echo "==> 0.5/3 检查是否已标定"
+echo "==> 0.5/4 检查是否已标定"
 python3 - "$CONFIG" <<'PY'
 import json, sys
 try:
@@ -34,11 +34,11 @@ else:
 PY
 
 echo
-echo "==> 1/3 冒烟测试（不需要视频）"
+echo "==> 1/4 冒烟测试（不需要视频）"
 python3 tests/test_smoke.py
 
 echo
-echo "==> 2/3 跑视频分析管线"
+echo "==> 2/4 跑视频分析管线"
 if [ -n "$VIDEO" ]; then
   python3 -m src.run_pipeline --config "$CONFIG" --video "$VIDEO"
 else
@@ -56,9 +56,15 @@ if d.startswith("../"):
 print(d)
 PY
 )
-echo "==> 3/3 完成，结果在 $OUTDIR/"
-echo "   实时数据: $OUTDIR/realtime.json   （交给 UI 协作者）"
-echo "   占位看板: $OUTDIR/dashboard.html  （正式 UI 可忽略）"
-echo "   核对   : $OUTDIR/annotated.mp4"
-echo "   标定查 : $OUTDIR/calibration_check.png  （网格贴地才算标对）"
-echo "   UE5 用 : $OUTDIR/npc_tracks.json"
+echo
+echo "==> 3/4 生成实时看板（单文件，可直接在浏览器或 UE Web Browser 打开）"
+python3 tools/build_ui.py --data "$OUTDIR/realtime.json" \
+        --video annotated.mp4 --h264 --out "$OUTDIR/dashboard_live.html" || true
+
+echo
+echo "==> 4/4 完成，结果在 $OUTDIR/"
+echo "   实时看板: $OUTDIR/dashboard_live.html  （双击即可看，UI 已内置）"
+echo "   实时数据: $OUTDIR/realtime.json        （字段契约见 docs/realtime_data_contract.md）"
+echo "   UE5 用  : $OUTDIR/npc_tracks.json"
+echo "   核对视频: $OUTDIR/annotated.mp4"
+echo "   标定查  : $OUTDIR/calibration_check.png（网格贴地才算标对）"

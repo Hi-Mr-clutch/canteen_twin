@@ -4,15 +4,16 @@
 
 ```
 video.mp4 ─▶ 检测(人) ─▶ 跟踪(稳定ID) ─▶ 四点透视(像素→地面米制) ─▶ 统计+导出
-                                                                  ├─ npc_tracks.json  给 UE5 蓝图（NPC 轨迹）
-                                                                  ├─ realtime.json    给 UI 协作者（实时数据源）
-                                                                  ├─ dashboard.html   离线占位看板（可替换/忽略）
+                                                                  ├─ npc_tracks.json     给 UE5 蓝图（NPC 轨迹）
+                                                                  ├─ realtime.json       实时数据源（看板唯一输入）
+                                                                  ├─ dashboard_live.html 实时看板（单文件，UE 直接用）
                                                                   └─ analytics.json / tracks.csv / 热力图 / 核对视频
 ```
 
 > **场景范围**：只做**饭堂门口外**的人流量（经过、进店、出店、门前滞留），不涉及饭堂内部功能。
 > **场景建模与视频素材由你提供**，这里只有管线的代码，不含任何渲染/合成场景。
-> **UI 页面由协作者实现**：本仓库只导出实时数据 `realtime.json`，不实现任何实时页面。
+> **UI 已内置**：`ui/index.html` + `tools/build_ui.py` 生成单文件实时看板。
+> 布局为 L 型：顶部横条 + 右侧竖栏是 UI，左下透明露出 UE5 的 3D 画面，视频放在右侧栏。
 > **仓库地址**：https://github.com/Hi-Mr-clutch/canteen_twin
 
 ---
@@ -79,8 +80,9 @@ python3 -m src.run_pipeline --config configs/entrance_measured.json
 | 文件 | 给谁用 | 内容 |
 |---|---|---|
 | `npc_tracks.json` | **UE5 蓝图** | 每个 NPC 一条轨迹：帧号 + UE 世界坐标(cm) + 朝向 |
-| `realtime.json` | **UI 协作者（实时）** | 逐帧累计快照 + 事件流 + 人员点位；字段见 `docs/realtime_data_contract.md` |
-| `dashboard.html` | 占位（可忽略） | 管线自带的离线快照看板，正式 UI 由协作者实现 |
+| `realtime.json` | **UI（实时）** | 逐帧累计快照 + 事件流 + 人员点位；字段见 `docs/realtime_data_contract.md` |
+| `dashboard_live.html` | **正式实时看板** | 单文件自包含，双击可看；UE 里用 Web Browser 加载 |
+| `dashboard.html` | 离线快照（非实时） | 管线生成的静态看板，写报告 / 自查用 |
 | `annotated.mp4` | 人工核对 | 叠加了检测框、ID、区域、计数线的视频 |
 | `calibration_check.png` | 标定自查 | 1m 网格反投影回画面，网格贴地就说明标对了 |
 | `heatmap.png` | 报告配图 | 门前地面人流密度（0.25m 栅格） |
@@ -88,27 +90,42 @@ python3 -m src.run_pipeline --config configs/entrance_measured.json
 | `analytics.json` | 二次开发 | 统计汇总（人数/进出/区域停留/逐帧曲线） |
 | `tracks.csv` | Excel | 同上，表格版 |
 
-### 2.1 实时数据接口（UI 由协作者实现）
+### 2.1 实时看板（UI 已内置）
 
-**本项目只提供数据，不实现 UI 页面。** `realtime.json` 是 UI 侧唯一数据源，
-内嵌逐帧时间轴：每帧的当前人数 / 累计进出 / 累计人数 / 峰值 / 区域占用
-+ 事件流 + 人员点位。每一帧都是「截至该帧」的累计快照，UI 直接取用、不要自己累加。
+> **第一次在 UE 里接线**：直接照 [`docs/local_test_guide.md`](docs/local_test_guide.md) 一步步点，
+> 里面是插件、蓝图节点、插视频、验收清单的零基础流程，不用先读下面的原理。
 
-UE5 里 **NPC 和 UI 共用一个时钟**：同一个 Tick 读一次 `MediaPlayer.GetTime()`，
-一路给 NPC 算 `CurFrame`，一路推给 UI 定位帧号 `f`。所以有人进门时，
-引擎里的小人和面板数字同时变化，不需要额外对时。
+看板在 `ui/index.html`，用 `tools/build_ui.py` 把 `realtime.json` 内嵌进去，生成单文件：
 
-给 UI 协作者：
+```bash
+python3 tools/build_ui.py --data out/entrance_a/realtime.json \
+        --video annotated.mp4 --h264 --out out/entrance_a/dashboard_live.html
+```
+
+布局是 L 型的，专为 UE5 全屏叠加设计：
+
+- **顶部横条**：标题、当前人数 / 进店 / 出店 / 累计人数、时钟与帧号
+- **右侧竖栏**：视频窗口、补充指标、人数曲线、门前俯视点位、实时事件流
+- **左下大块透明**：露出 UE5 的 3D 场景；收到 `onVideoTime(T)` 自动切换
+
+浏览器直接打开成品页就能预览（自带播放 / 暂停 / 拖动）；UE5 里怎么摆见
+[`docs/ue5_integration.md`](docs/ue5_integration.md) 第 5 节。
+
+`realtime.json` 是看板唯一数据源，每一帧都是「截至该帧」的累计快照，直接取用、不要自己累加。
+字段契约见 [`docs/realtime_data_contract.md`](docs/realtime_data_contract.md)；
+要换一套自己的 UI 时，照契约实现即可，不影响管线。
 
 | 需要 | 在哪 |
 |---|---|
 | 数据契约（字段表 / 定位公式 / 示例） | [`docs/realtime_data_contract.md`](docs/realtime_data_contract.md) |
-| **真实视频数据样例（推荐联调用）** | `examples/realtime_a_1080p.json`、`examples/realtime_b_720p.json` |
+| 看板源码 / 构建脚本 | `ui/index.html`、`tools/build_ui.py` |
+| **真实视频数据样例（联调用）** | `examples/realtime_a_1080p.json`、`examples/realtime_b_720p.json` |
 | 无需真实视频的联调样例 | `examples/realtime_sample.json` |
 | 素材参数 / 最终统计结果 | [`docs/final_footage.md`](docs/final_footage.md) |
-| UE5 侧怎么把视频时间喂给页面 | [`docs/ue5_integration.md`](docs/ue5_integration.md) 第 5 节 |
+| UE5 侧接线（透明控件 / 视频 / 推时间） | [`docs/ue5_integration.md`](docs/ue5_integration.md) 第 5 节 |
+| **零基础本地联调（逐步操作 + 验收清单）** | [`docs/local_test_guide.md`](docs/local_test_guide.md) |
 
-`dashboard.html` 只是离线占位看板，正式 UI 可直接替换或忽略。
+`dashboard.html` 是管线直接生成的离线快照（非实时），写报告或快速自查时用。
 
 ---
 
@@ -170,7 +187,7 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
 > 门框底比柱脚高 0.2m（本门实测），四点因此略不共面，纵深比例会偏一成——**直接点门框底就行**，
 > 想更准再沿门框竖边下移 0.2m 到与柱脚齐平处。两者都不影响人数和进出人次。
 
-坐标转 UE5：`UE.X = (地面高度 − y_m)×100`，`UE.Y = x_m×100`，`Z=0`，单位 cm；朝向 `yaw` 已换算成 UE 角度。
+坐标转 UE5：`UE.X = (y_m − 地面进深)×100`（**进店 = +X**，门洞墙 `X=0`，室外柱脚线 `X=−213`），`UE.Y = x_m×100`，`Z=0`，单位 cm；朝向 `yaw` 已换算成 UE 角度。
 
 ### 3.4 统计口径（门口场景）
 
@@ -219,7 +236,7 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
     "image_points":  [[x1,y1],[x2,y2],[x3,y3],[x4,y4]],          // ← 只填这一项，标定工具点出来
     "ground_points": [[0,0],[4.47,0],[3.87,2.13],[0.6,2.13]],    // 米，等腰梯形：近边柱距 / 远边门宽 / 进深
     "ground_size_m": [4.47, 2.13],
-    "ue_origin_cm": [0, 0, 0], "flip_x": false
+    "ue_origin_cm": [0, 0, 0], "flip_x": false                   // 整体平移 cm；flip_x 会把 UE.Y 取反（左右镜像），正常别开
   },
 
   "zones":    [ {"name":"porch","polygon":[[0,0],[4.47,0],[3.87,2.13],[0.6,2.13]]} ],
@@ -257,6 +274,8 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
 
 ```
 canteen_twin/
+├── ui/
+│   └── index.html                # ★ 实时看板（L 型 HUD：顶部+右侧 UI，左下透明）
 ├── src/
 │   ├── run_pipeline.py      # 主入口：CLI + 主循环 + 可视化 + 汇总
 │   ├── detector.py          # YOLO / 前景差分 / auto 降级
@@ -264,12 +283,14 @@ canteen_twin/
 │   ├── homography.py        # 四点标定、像素↔地面、UE 映射
 │   ├── analytics.py         # 区域/停留/计数线/热力图
 │   ├── postprocess.py       # 轨迹拼接
-│   ├── exporter.py          # JSON / CSV / realtime.json / 占位看板
+│   ├── exporter.py          # JSON / CSV / realtime.json / 离线快照看板
 │   └── config.py            # 配置加载
 ├── tools/
 │   ├── calibrate_homography.py   # 四点标定（交互点选 / 或用 --image-points）
 │   ├── pick_zones.py             # 点选计数线/区域，自动换算成米（不用卷尺）
-│   └── run_all.sh                # 一键：测试 → 跑管线
+│   ├── make_modeling_plan.py     # 生成建模俯视图（改尺寸后重跑，图和文档不脱节）
+│   ├── build_ui.py               # realtime.json 注入 UI，生成单文件实时看板
+│   └── run_all.sh                # 一键：测试 → 跑管线 → 生成看板
 ├── configs/
 │   ├── entrance.json             # 门口场景通用配置（示例坐标，按需改）
 │   ├── entrance_measured.json    # 第一食堂正门 · 实测参数版（待填 4 个像素点）
@@ -287,8 +308,9 @@ canteen_twin/
     ├── calib_points_demo.png     # 标定四点示意：点建筑角点，不用摆标记物
     ├── final_footage.md          # ★ 最终素材参数 / 标定点 / 结果 / 已知局限
     ├── modeling_spec.md          # UE5 建模规格：尺寸表 / 轴向 / 自检
-    ├── modeling_plan.png         # 门廊俯视平面图
-    ├── realtime_data_contract.md # ★ 给 UI 协作者的实时数据契约
+    ├── modeling_plan.png         # 门廊俯视平面图（tools/make_modeling_plan.py 生成）
+    ├── local_test_guide.md       # ★ 零基础本地联调手册：蓝图接线 / 插视频 / 验收清单
+    ├── realtime_data_contract.md # ★ realtime.json 字段契约（换 UI 时看）
     └── ue5_integration.md        # UE5 蓝图读 JSON / NPC 插值 / 视频同步 / UI 接线
 ```
 

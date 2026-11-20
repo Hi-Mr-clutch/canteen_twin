@@ -227,37 +227,47 @@ Event BeginPlay
 
 内容浏览器右键 → `蓝图类 Blueprint Class` → 选 **Actor** → 命名 `BP_Npc`。
 
-> ⚠️ 选 **Actor**，不要选 `Character` / `Pawn`。Character 自带 Capsule 且
-> Actor 原点在**身体中心**，`SetActorLocation(Z=0)` 会让人陷进地里一半。
+> ⚠️ **不要选 `Character` / `Pawn`，也不要直接拿模板里的 `BP_ThirdPersonCharacter` 来改。**
+> Character 的根是 Capsule、原点在**身体中心**，`SetActorLocation(Z=0)` 会陷地一半；
+> 而且自带的 `CharacterMovement` 会加重力、自动移动，跟每帧
+> `SetActorLocationAndRotation` 打架。我们要的只是**一个空壳 Actor + 一个可见 Mesh**。
 
-**① 让 pivot 落在脚底（最关键）**
+**① 放模型（二选一，看项目里有什么）**
 
-`SetActorLocationAndRotation(..., Z=0)` 是把 **Actor 原点**放到地面。
-所以身体模型必须相对原点**整体往上挪半个身高**：
-
-组件面板 → `添加 Add` → 选 **Cylinder**（引擎自带 BasicShapes，高 100 cm，原点在几何中心）：
-
-| 设置 | 值 | 为什么 |
+| | 方案 A：自带 ThirdPerson 模板（**你有，就用这个**） | 方案 B：没有模板 |
 |---|---|---|
-| `Location Z` | **+50** | 圆柱底部正好落在 Actor 原点 Z=0 |
-| `Scale` | `(0.35, 0.35, 1.7)` | 直径约 35 cm、高约 170 cm，接近真人 |
+| 加什么 | `Skeletal Mesh` 组件，Mesh 选 `SKM_Manny`（或 `SKM_Quinn`） | `Cylinder` + 前方小 `Cube` |
+| **要不要 Cylinder / Cube** | **不用** | 要 |
+| 根组件 | 把 Skeletal Mesh 拖到 `DefaultSceneRoot` 上，设为根 | 保持默认 `DefaultSceneRoot` |
+| 相对 Location | `(0, 0, 0)`，**不要挪 Z** | Cylinder `Z=+50`、Scale `(0.35,0.35,1.7)`；Cube `(30,0,140)`、Scale `(0.15,0.25,0.15)` |
+| 为什么 | UE 自带人形的原点本来就在**脚底**，且能看出脸朝哪 | Cylinder 原点在几何中心，得抬半个身高；圆柱看不出朝向，加方块当「鼻子」 |
 
-再 `添加` 一个 **Cube** 当「朝向标记」，让它一眼能看出人朝哪边：
+**方案 A 具体怎么点**
 
-| 设置 | 值 |
-|---|---|
-| `Location` | `(30, 0, 140)`（贴在身体**前方 +X**） |
-| `Scale` | `(0.15, 0.25, 0.15)` |
+1. 组件面板 → `添加` → 搜 **Skeletal Mesh**
+2. 选中它，右侧 Details → `Skeletal Mesh Asset`（UE5.0 里叫 `Mesh`）→
+   内容浏览器里搜 **`Manny`**，选 `SKM_Manny`
+   - UE 5.1+ 在 `/Game/Characters/Mannequins/Meshes/`；UE 5.0 叫 `SK_Mannequin`
+   - 直接搜名字最快，不用记路径
+3. 把 `Skeletal Mesh` 拖到 `DefaultSceneRoot` 上，让它成为**根组件**（原 Scene Root 被替换）
+4. `Relative Location = (0,0,0)`、`Relative Rotation = (0,0,0)`
+5. **动画先不接**：默认 T-pose 静止就够验收。接了 `ABP_Manny` 会自己播走路循环，
+   和视频里的真实行走对不上，反而干扰判断
 
-yaw = 0 时这个小方块指向 **+X**，正好对应「进店」方向，验收第 4 条才看得出来。
+**朝向自检（别死记角度，看一眼最准）**
 
-> 如果项目里带了 ThirdPerson 模板，也可以直接用 `SKM_Manny`：
-> UE 自带人形 Mesh 的原点本来就在脚底，把它设为**根组件**即可，不用挪 Z。
-> 但别用 Character 蓝图的 Capsule 组合。
+人形网格导入时的前向轴不统一，有的版本面朝 `+Y`。把 `BP_Npc` 拖进关卡、
+`Rotation = (0,0,0)`，看脸朝哪：
+
+- 脸朝 **+X**（视口里的**红**轴）→ 正确，什么都不用改
+- 脸朝 **+Y**（**绿**轴）→ 把 Mesh 的 `Relative Rotation Z` 设成 **−90** 修正
+
+这一步决定验收第 4 条「进店朝 +X」看到的是不是对的：**yaw=0 时人应该朝 +X**。
 
 **② 关掉碰撞**
 
-选中 Cylinder 和 Cube → Details → `Collision` → `Collision Presets = No Collision`。
+选中你加的那个 Mesh 组件（Skeletal Mesh，或 Cylinder + Cube）→
+Details → `Collision` → `Collision Presets = No Collision`。
 
 两条理由：5.5 里 `bSweep = false` 已经不做扫掠；58 个小人挤在门口时
 碰撞会互相推挤，反而偏离真实轨迹。顺带也避免 Spawn 时被
@@ -282,9 +292,9 @@ NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
 
 之后回到 `BP_Manager`，`AllNpcs` 的 Value Type 里就能搜到 `BP_Npc` 了。
 
-> 想更好看就给 Cylinder 换个亮色材质，不影响功能。
-> 没有模型资源也完全能验收 —— 圆柱 + 前方小方块就够判断
-> 「踩不踩地」和「朝不朝 +X」。
+> 方案 A 更好看、能辨认朝向、不用调数值；方案 B 只是没资源时的兜底，
+> 功能完全一样。两种都要满足同一条：**`Z=0` 时脚踩地、`yaw=0` 时朝 `+X`**。
+> 第 ②③④⑤ 步与选哪个方案无关，都要做。
 
 ### 5.3 BeginPlay：读 JSON
 
@@ -425,7 +435,7 @@ Create Widget (Class = WBP_Hud)  → 返回值是 UserWidget
 | 2 | UE 里 Play，看 Output Log | `读文件成功 = true / 长度 = 1011771`，然后 `NPC 数 = 58`（A）/ `34`（B） | 蓝图 Path 绝对路径、`Load String From File` 的 Success、Decode Json 返回值 |
 | 3 | 看小人出现的位置 | 在门外 `X < 0` 一侧，不在店里 | 场景 X 轴反了 → 见 `modeling_spec.md` §1.1 |
 | 4 | 看小人进门方向 | 朝 **+X** 走（进店），出店朝 −X | 还按旧图纸建的 → 整体绕门洞中点转 180° |
-| 5 | 看脚底 | 贴着地面，不悬空不陷地 | 见 5.2b ①：Cylinder `Z=+50`、Scale Z=1.7；别用 Character 蓝图 |
+| 5 | 看脚底 | 贴着地面，不悬空不陷地 | 见 5.2b ①：用 `SKM_Manny` 时 `Z` 保持 0；用 Cylinder 才设 `Z=+50`。都别用 Character 蓝图 |
 | 6 | 看门洞处 | 人从门洞穿过，不撞墙 | 门洞 `Y` 范围取配置 `counters.p1/p2` |
 | 7 | 看左下 | 透明，能看见 3D 场景 | 没勾 `Supports Transparency` |
 | 8 | 视频播到约 10 s | 面板数字变化，且与视频里过门的人对得上 | 推的不是 `MediaPlayer.GetTime()` |

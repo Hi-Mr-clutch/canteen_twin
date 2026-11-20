@@ -176,26 +176,51 @@ Event BeginPlay
 
 ## 5. 第 4 步：蓝图接 NPC
 
-### 5.1 建两个结构体
+### 5.1 建两个结构体（先建，否则 5.2 里选不到）
 
-内容浏览器右键 → `Blueprint` → `Structure`：
+内容浏览器空白处右键 → `蓝图 Blueprint` → `结构体 Structure`，建两个：
 
-```
-FNpcSample : float X;  float Y;  float Yaw;  int Frame;
-FNpcTrack  : int Id;   int StartFrame;  int EndFrame;  TArray<FNpcSample> Samples;
-```
+| 结构体 | 成员（添加变量，各起名字） |
+|---|---|
+| `FNpcSample` | `X` → **浮点**；`Y` → **浮点**；`Yaw` → **浮点**；`Frame` → **整数** |
+| `FNpcTrack` | `Id` → **整数**；`StartFrame` → **整数**；`EndFrame` → **整数**；`Samples` → **结构 → FNpcSample**，容器选 **数组 Array** |
+
+**顺序不能反**：`FNpcTrack` 里要引用 `FNpcSample`。
+每个结构体建完点一次 **编译 Compile**，再 **保存**，不然后面类型下拉里是空的。
+
+> `Frame` 用 32 位**整数 Integer**，别选 `Integer64`。帧号最大 936，够用。
 
 ### 5.2 建 `BP_Manager`（Actor Blueprint），加这些变量
 
-| 变量 | 类型 | 用途 |
-|---|---|---|
-| `MetaFps` | float | 从 json 读，**A=29.97 / B=29.0** |
-| `Tracks` | TArray\<FNpcTrack\> | 所有轨迹 |
-| `AllNpcs` | TMap\<int, BP_Npc\> | id → 场景里的小人 |
-| `MP_Clock` | Media Player 引用 | 主时钟 |
-| `WB_Hud` | Web Browser 引用 | 第 6 步的控件 |
+内容浏览器右键 → `蓝图类 Blueprint Class` → 选 **Actor** → 命名 `BP_Manager`。
+
+在左侧 **变量 Variables** 面板点 **`+`** → 输入变量名 → 在右侧 **细节 Details → 变量类型 Variable Type** 里选。
+你截图里那个搜索列表就是这一步弹出的：
+
+| 变量 | 手册里的 C++ 写法 | UE 里实际选 | 选完之后还要做什么 |
+|---|---|---|---|
+| `MetaFps` | `float` | **浮点 Float** | 不用设默认值，运行时从 json 里读 |
+| `Tracks` | `TArray<FNpcTrack>` | **结构 Struct → `FNpcTrack`** | 把 `Variable Type` 下方的 **容器类型 Container Type** 改成 **数组 Array** |
+| `AllNpcs` | `TMap<int, BP_Npc>` | **整数 Integer** | 容器类型 → **映射 Map**；`Key Type` 保持 Integer，`Value Type` 改成 **对象类型 Object Reference → 搜 `BP_Npc`** |
+| `MP_Clock` | Media Player 引用 | **对象类型 Object Reference** | 下方 `Object Class` 搜 **`Media Player`**；**编译**后在 `Default Value` 里选内容浏览器中的 `MP_Clock` 资产 |
+| `WB_Hud` | Web Browser 引用 | **对象类型 Object Reference** | 下方 `Object Class` 搜 **`Web Browser`**；**不设默认值**，第 6 步运行时赋值 |
+
+全部加完点一次 **编译 Compile**。
+
+> 中文版里 **「对象类型」= Object Reference**，就是图里倒数第二个。
+> `Media Player` 和 `Web Browser` 都不是 Actor，所以选「对象类型」而不是「类引用 Class Reference」；
+> 变量名下面那个 `Object Class` 下拉才是选具体类的地方，别把变量名当成类名。
 
 `BP_Npc` 随便放个 Capsule + 人形 Mesh 即可，**pivot 放在脚底**（Z=0 时脚贴地）。
+
+**四个最容易卡住的点：**
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `Tracks` 的结构列表里找不到 `FNpcTrack` | 结构体没编译 / 没保存 / 是空结构体 | 打开结构体点 `Compile` + 保存，至少加一个成员 |
+| `AllNpcs` 的 Value 里搜不到 `BP_Npc` | `BP_Npc` 还没建，或建了但没编译 | 先建好 `BP_Npc` 并编译保存 |
+| 搜不到 `Media Player` | 选成了「类引用」，或在选资产名 | 类型必须是 **对象类型**，`Object Class` 搜类名 `Media Player` |
+| 搜不到 `Web Browser` | 没启用 Web Browser 插件 / 没重启 | 插件里勾上并重启编辑器 |
 
 ### 5.3 BeginPlay：读 JSON
 
@@ -301,12 +326,18 @@ file:///D:/canteen_twin/demo/entrance_a/dashboard_live.html
 > 换 B 素材就把 `entrance_a` 改成 `entrance_b`，**同时**把 5.3 节蓝图 Path
 > 里的 `entrance_a` 也改成 `entrance_b`，两边要一致。
 
-6. 在 `BP_Manager` 的 BeginPlay 里（或关卡蓝图）：
+6. 在 `BP_Manager` 的 BeginPlay 里（或关卡蓝图）把控件接上：
 
 ```
-Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
- → 存到 HudRef → 把 HudRef.WB_Hud 赋给 BP_Manager 的 WB_Hud 变量
+Create Widget (Class = WBP_Hud)  → 返回值是 UserWidget
+ ├─ Add to Viewport (ZOrder = 10)
+ └─ Cast to WBP_Hud → Get WB_Hud → Set 本蓝图.WB_Hud
 ```
+
+- `Cast to WBP_Hud` 这步不能省：`Create Widget` 的返回值是基类 `UserWidget`，
+  不 Cast 就点不出 `Get WB_Hud`
+- `Get WB_Hud` 拿到的才是 Web Browser 对象（5.2 里那个变量）
+- 顺序建议：先 Set `WB_Hud`，再 Add to Viewport
 
 7. 视口里确认：顶部横条 + 右侧竖栏是 UI，左下能看见你的 3D 门廊。
 

@@ -120,23 +120,68 @@ python tools/build_ui.py --data examples/realtime_a_1080p.json \
 
 ### 4.1 先做「主时钟」MediaPlayer（必须有，哪怕画面不显示）
 
-1. 内容浏览器右键 → `Media` → **Media Player**，命名 `MP_Clock`
-2. 新建时**勾上 "Video output Media Texture asset"**，会自动多出 `MP_Clock_Video`
-3. 再建一个 **File Media Source**：右键 → `Media` → `File Media Source`，
-   命名 `MS_Clock`，`File Path` 指向 `Content/Movies/annotated_web.mp4`
-   （接法 A 若不往 Movies 放文件，也可直接指向仓库 `demo/` 里那份的绝对路径）
-4. 打开 `BP_Manager`（下一步会建）的 BeginPlay，接：
+**① 建三个资产**
 
-```
-Event BeginPlay
- ├─ MP_Clock → Open Source (MS_Clock)
- ├─ MP_Clock → Set Looping (true)       // 循环演示
- └─ MP_Clock → Play
-```
+| # | 在内容浏览器右键 → `Media` → | 命名 | 关键设置 |
+|---|---|---|---|
+| 1 | **Media Player** | `MP_Clock` | 勾 `Video output Media Texture asset` |
+| 2 | （上一步自动生成） | `MP_Clock_Video` | 不用管，只有接法 B 才用 |
+| 3 | **File Media Source** | `MS_Clock` | `File Path` 指向 mp4 |
 
-> 本地偷懒版：可以不建 File Media Source，直接用 `MP_Clock → Open URL`，
-> 填视频的完整路径（例如 `D:/canteen_twin/demo/entrance_a/annotated_web.mp4`）。
-> 但打包后会失效，正式用还是走 File Media Source。
+`MS_Clock` 的 `File Path` 直接选仓库里那份：
+`D:/canteen_twin/demo/entrance_a/annotated_web.mp4`
+（也可以先把 mp4 复制到 `Content/Movies/` 再选，两种都行）
+
+**② 在 `BP_Manager` 里确认两个变量的默认值（90% 的人漏这一步）**
+
+| 变量 | 类型 | `Default Value` 必须选 |
+|---|---|---|
+| `MP_Clock` | 对象类型 → `Media Player` | 内容浏览器里的 **`MP_Clock` 资产** |
+| `MS_Clock` | 对象类型 → `Media Source` | 内容浏览器里的 **`MS_Clock` 资产** |
+
+> 不设默认值 = `None`。`Open Source` 的 `Target` 是空的，节点**不报错但什么也不做**，
+> `GetTime()` 永远返回 0，NPC 和面板全都静止——这是最难查的坑。
+> 设完点一次**编译**，默认值才生效。
+>
+> 更省事的做法：直接从内容浏览器把 `MP_Clock` / `MS_Clock` **拖进蓝图**，
+> 会自动生成一个已绑定该资产的引用节点，不会出现"忘了设默认值"。
+> 但 Tick 里还要用 `MP_Clock`，所以建议变量保留、默认值设好，两处都引用同一个变量。
+
+**③ BeginPlay 只连这 4 个节点**
+
+沿**白色执行流**从左往右，逐个引脚接：
+
+| 顺序 | 节点 | 要接的引脚 / 设置 | 接到哪里 |
+|---|---|---|---|
+| 1 | `Open Source` | 左侧**白色执行输入** | ← **Event BeginPlay** 的右侧白箭头 |
+| 2 | `Open Source` | `Target`（蓝色） | ← 拖入变量 **`MP_Clock`** |
+| 3 | `Open Source` | `Media Source` | ← 拖入变量 **`MS_Clock`** |
+| 4 | `Set Looping` | 左侧**白色执行输入** | ← **`Open Source`** 右侧白箭头 |
+| 5 | `Set Looping` | `Target` | ← **`MP_Clock`** |
+| 6 | `Set Looping` | `Looping` | **打勾**（true），不接线 |
+| 7 | `Play` | 左侧**白色执行输入** | ← **`Set Looping`** 右侧白箭头 |
+| 8 | `Play` | `Target` | ← **`MP_Clock`** |
+
+**连到这里就停，后面什么都不要接。**
+
+**④ 为什么你图里最后的 `Load Json from File` 要删掉**
+
+那三个问题：
+
+1. 它的 `File` 引脚要 **File Path 结构**，不是字符串路径，直接填不进去
+2. 它把「读文件 + 解析」合并成一个节点，失败时分不清是路径错还是格式错
+3. 读 JSON 属于 **5.3**，和「开时钟」是两件事；硬接在后面会把执行顺序搞乱
+
+正确做法：**右键删掉这个节点**。5.3 改用 `Load String From File`，
+能单独打印 `Success` 和字符串长度，出问题一眼能定位。
+
+**⑤ 怎么确认时钟真的在走**
+
+- 双击打开 `MP_Clock` 资产窗口，Play 后时间码应该在递增
+- 或在 Tick 里 `Print String` 打 `MP_Clock → Get Time (Seconds)`，数字应不断变大
+
+> 本地偷懒版：不建 File Media Source，直接用 `MP_Clock → Open URL`，
+> 填 `D:/canteen_twin/demo/entrance_a/annotated_web.mp4`。打包后会失效，正式用还是 `MS_Clock`。
 
 **这个 MediaPlayer 唯一的职责是提供 `GetTime()`**。视频画面由谁显示都行，
 但它必须真的在播，否则 `T` 恒为 0，NPC 和面板都不动。
@@ -296,43 +341,107 @@ NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
 > 功能完全一样。两种都要满足同一条：**`Z=0` 时脚踩地、`yaw=0` 时朝 `+X`**。
 > 第 ②③④⑤ 步与选哪个方案无关，都要做。
 
-### 5.3 BeginPlay：读 JSON
+### 5.3 BeginPlay：读 JSON（接在 4.1 的 `Play` 后面）
+
+> ⚠️ **不要新建第二个 `Event BeginPlay`。** 把 4.1 里 `Play` 右侧的**白色箭头**
+> 直接拖到 `Load String From File` 左侧的白色执行输入。
+> 整条链是：`BeginPlay → Open Source → Set Looping → Play → Load String From File → …`
+
+**先分清两种线（后面全靠它，不然一定连乱）**
+
+| 线 | 长什么样 | 管什么 | 怎么接 |
+|---|---|---|---|
+| **执行流** | **白色粗箭头** | 决定**顺序**：上一个做完才走下一个 | 节点右侧白箭头 → 下一个节点左侧白箭头 |
+| **数据** | 蓝 / 绿 / 青**细线** | 只传**值**（路径、数组、数字），不影响顺序 | 输出引脚 → 输入引脚 |
+
+> 手册里的伪代码用 `→` 表示**数据**流向，只有最左边那条竖线代表执行流。
+> 看不清就把"白色箭头"和"彩色细线"分开画，两者**永远不交叉接**。
+
+**① `File Name` 引脚怎么填（它要 String，不能直接打字）**
+
+- **简单**：空白处右键 → 搜 `String` → 选 **`Make Literal String`**，
+  在节点上填 `D:/canteen_twin/demo/entrance_a/npc_tracks.json`，再连到 `File Name`
+- **整齐**：建一个 String 变量 `JsonPath`，默认值填这个路径，拖出来连到 `File Name`
+
+**② 第一步：先只做到「打印出 58」**
+
+这一步不要急着组装轨迹，先确认文件读对了：
+
+| 节点 | 执行流（白线） | 数据线 |
+|---|---|---|
+| `Load String From File` | 左 ← **`Play` 右** | `File Name` ← `Make Literal String`（上面的路径） |
+| `Branch` | 左 ← `Load String From File` 右 | `Condition` ← `Load String From File` 的 **`Success`** |
+| `Print String`（失败） | 左 ← `Branch` 的 **False** | `In String` = `读文件失败，检查路径` |
+| `Print String`（成功） | 左 ← `Branch` 的 **True** | `In String` ← 下面这条数据链 |
+
+数据链（全是彩色细线，**不接执行流**）：
 
 ```
-Event BeginPlay
- ├─ Path      = "D:/canteen_twin/demo/entrance_a/npc_tracks.json"   // 直接填字符串，绝对路径
- ├─ (ok, JsonStr) = Load String From File (Path)                      // ok 是 Success(bool)
- ├─ Print String ("读文件成功 = " + ok + " / 长度 = " + Len(JsonStr))  // 期望 true / 1011771
- ├─ JsonObj   = Decode Json (JsonStr)              // 返回 bool，false 就 Print "JSON 解析失败"
- ├─ MetaObj   = Get Object Field ("meta")
- ├─ MetaFps   = MetaObj → Get Number Field ("fps")
- ├─ Arr       = JsonObj → Get Array Field ("npcs")
- ├─ Print String ("NPC 数 = " + Length(Arr))       // 素材 A 应显示 58，B 应显示 34
- └─ ForEachLoop (Arr) → 每个元素 JsonValue → As Object:
-      ├─ Id         = Get Integer Field ("id")
-      ├─ StartFrame = Get Integer Field ("start_frame")
-      ├─ EndFrame   = Get Integer Field ("end_frame")
-      ├─ SamplesArr = Get Array Field ("samples")
-      └─ ForEachLoop (SamplesArr) → 组装 FNpcSample:
-           Frame = Get Integer Field ("f")
-           X     = Get Number  Field ("x")
-           Y     = Get Number  Field ("y")
-           Yaw   = Get Number  Field ("yaw")
-         → Track.Samples.Add(...)
-      → Tracks.Add(Track)
+Load String From File → Content
+        ↓
+   Decode Json (Json String)
+        ↓ Json Object
+   Get Array Field ("npcs")
+        ↓ TArray
+   Length (数组长度，int)
+        ↓
+   Print String 的 In String（int 会自动转成字符串）
 ```
+
+Play 后 Output Log 应出现：
+- 失败 → `读文件失败，检查路径`
+- 成功 → 打印出 **58**（A）/ **34**（B）
+
+> 看不到 58 就别往下做。这一步只验证"文件读到了、JSON 解开了、npcs 数组有 58 个"。
+
+**③ 第二步：把 58 条轨迹装进 `Tracks`**
+
+在 `Print String`（成功）后面接 `ForEachLoop`，循环体里逐个取字段：
+
+```
+ForEachLoop (数组 = Get Array Field "npcs")
+ ├─ Loop Body（每轮）：
+ │    ├─ Array Element → As Object
+ │    ├─ Get Integer Field ("id")          → Track.Id
+ │    ├─ Get Integer Field ("start_frame") → Track.StartFrame
+ │    ├─ Get Integer Field ("end_frame")   → Track.EndFrame
+ │    ├─ Get Array Field ("samples")       → 内层 ForEachLoop
+ │    │     └─ 每轮：Get Integer Field("f") / Get Number Field("x"/"y"/"yaw")
+ │    │            → Make FNpcSample → Track.Samples 的 Add
+ │    └─ Tracks 的 Add (Track)
+ └─ Completed（循环跑完）→ 接 5.4 的 SpawnAllNpcs
+```
+
+> 两个 `ForEachLoop` 是**嵌套**的：外层 58 次（每个 NPC），内层 281 次左右（每个采样点）。
+> 内层循环的 `Completed` 才回到外层，外层 `Completed` 才往下走。
+> `Get ... Field` 都是**纯函数节点，没有执行引脚**，只连彩色数据线；只有
+> `ForEachLoop` 和 `Add` 这类需要执行流。
+
+**④ 顺便把 `MetaFps` 读出来**
+
+`Decode Json` 的 `Json Object` 同时接一条数据线：
+
+```
+Get Object Field ("meta") → Get Number Field ("fps") → Set MetaFps
+```
+
+`Set MetaFps` 有执行引脚，随便挂在 `Decode Json` 之后的某条执行流上即可；
+**关键是 `MetaFps` 要在第一次 Tick 之前就有值**，否则第一帧 `CurFrame` 是 0。
 
 > 不同版本 JSON Blueprint 的节点名略有差别，认准 `Get ... Field` 系列即可。
-> `Load String From File` **会静默失败**：路径写错时 `Success=false`、`JsonStr` 是空串，
-> `Decode Json` 照样返回一个空对象且**不报错**，后面 `npcs` 数组长度为 0、
-> 小人一个都不出现，还查不出原因。所以一定先打印第 205 行那句。
-> 期望 `true / 1011771`；再打印 `NPC 数` 应为 58（A）/ 34（B），不对就别往下做。
+> `Load String From File` **会静默失败**：路径写错时 `Success=false`、返回空串，
+> `Decode Json` 照样给一个空对象且**不报错**，后面 `npcs` 数组长度为 0、
+> 小人一个都不出现，还查不出原因。所以 ② 里那个 `Branch` 不能省。
+> 期望打印 **58**（A）/ **34**（B），不对就别往下做。
 >
 > **为什么不用 `FPaths::ProjectContentDir()`**：那要求把 json 放进 `Content/`，
 > 而 `Content/` 下的 `.json` 会被 UE 当成 DataTable 源反复弹导入框。
 > 本地测试直接填绝对路径最省事；打包发布才需要改回 Content 方案。
 
-### 5.4 自定义事件 `SpawnAllNpcs`（BeginPlay 末尾调用）
+### 5.4 自定义事件 `SpawnAllNpcs`（接在 5.3 外层循环的 `Completed` 后面）
+
+> 执行流来源：5.3 里外层 `ForEachLoop` 的 **`Completed`** 引脚 → 这里的入口。
+> 不要新起 `BeginPlay`，也不要在 `Tracks.Add` 那一轮就 Spawn（此时还没装满 58 条）。
 
 ```
 ForEachLoop (Tracks)

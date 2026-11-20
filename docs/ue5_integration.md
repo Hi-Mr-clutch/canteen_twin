@@ -129,6 +129,10 @@ Struct FNpcTrack { int Id; int StartFrame; int EndFrame; TArray<FNpcSample> Samp
 
 NPC 数量一般十几到几十，直接 Spawn 即可；上百人时建议改用 Instanced Static Mesh + 手动更新 Transform。
 
+`BP_Npc` 必须基于 **Actor**（不是 Character）、pivot 在脚底、关掉碰撞与自身 Tick，
+并且自带一个 `NpcTrack`（`FNpcTrack`）变量供 `Set NpcTrack` 和逐帧插值读取。
+逐项设置见 [`local_test_guide.md`](local_test_guide.md) 5.2b。
+
 ### 3.3 每帧更新（关键逻辑）
 
 ```

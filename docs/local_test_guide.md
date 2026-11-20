@@ -211,7 +211,8 @@ Event BeginPlay
 > `Media Player` 和 `Web Browser` 都不是 Actor，所以选「对象类型」而不是「类引用 Class Reference」；
 > 变量名下面那个 `Object Class` 下拉才是选具体类的地方，别把变量名当成类名。
 
-`BP_Npc` 随便放个 Capsule + 人形 Mesh 即可，**pivot 放在脚底**（Z=0 时脚贴地）。
+> 上面 5 个变量是 **`BP_Manager`** 的，别加到 `BP_Npc` 里。
+> `BP_Npc` 自己还要一个变量，见下一节。
 
 **四个最容易卡住的点：**
 
@@ -221,6 +222,69 @@ Event BeginPlay
 | `AllNpcs` 的 Value 里搜不到 `BP_Npc` | `BP_Npc` 还没建，或建了但没编译 | 先建好 `BP_Npc` 并编译保存 |
 | 搜不到 `Media Player` | 选成了「类引用」，或在选资产名 | 类型必须是 **对象类型**，`Object Class` 搜类名 `Media Player` |
 | 搜不到 `Web Browser` | 没启用 Web Browser 插件 / 没重启 | 插件里勾上并重启编辑器 |
+
+### 5.2b 建 `BP_Npc`（场景里的小人）
+
+内容浏览器右键 → `蓝图类 Blueprint Class` → 选 **Actor** → 命名 `BP_Npc`。
+
+> ⚠️ 选 **Actor**，不要选 `Character` / `Pawn`。Character 自带 Capsule 且
+> Actor 原点在**身体中心**，`SetActorLocation(Z=0)` 会让人陷进地里一半。
+
+**① 让 pivot 落在脚底（最关键）**
+
+`SetActorLocationAndRotation(..., Z=0)` 是把 **Actor 原点**放到地面。
+所以身体模型必须相对原点**整体往上挪半个身高**：
+
+组件面板 → `添加 Add` → 选 **Cylinder**（引擎自带 BasicShapes，高 100 cm，原点在几何中心）：
+
+| 设置 | 值 | 为什么 |
+|---|---|---|
+| `Location Z` | **+50** | 圆柱底部正好落在 Actor 原点 Z=0 |
+| `Scale` | `(0.35, 0.35, 1.7)` | 直径约 35 cm、高约 170 cm，接近真人 |
+
+再 `添加` 一个 **Cube** 当「朝向标记」，让它一眼能看出人朝哪边：
+
+| 设置 | 值 |
+|---|---|
+| `Location` | `(30, 0, 140)`（贴在身体**前方 +X**） |
+| `Scale` | `(0.15, 0.25, 0.15)` |
+
+yaw = 0 时这个小方块指向 **+X**，正好对应「进店」方向，验收第 4 条才看得出来。
+
+> 如果项目里带了 ThirdPerson 模板，也可以直接用 `SKM_Manny`：
+> UE 自带人形 Mesh 的原点本来就在脚底，把它设为**根组件**即可，不用挪 Z。
+> 但别用 Character 蓝图的 Capsule 组合。
+
+**② 关掉碰撞**
+
+选中 Cylinder 和 Cube → Details → `Collision` → `Collision Presets = No Collision`。
+
+两条理由：5.5 里 `bSweep = false` 已经不做扫掠；58 个小人挤在门口时
+碰撞会互相推挤，反而偏离真实轨迹。顺带也避免 Spawn 时被
+`Collision Handling Override` 挡住不生成。
+
+**③ 关掉自身的 Tick**
+
+点左上角 `Class Defaults` → 搜 `Tick` → 取消 **Start with Tick Enabled**。
+位置完全由 `BP_Manager` 每帧 `SetActorLocationAndRotation` 驱动，
+NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
+
+**④ 加一个变量 `NpcTrack`**
+
+变量面板 `+` → 名字 `NpcTrack` → 类型 **结构 Struct → `FNpcTrack`**，
+保持 public（**不要**勾 Private）。
+
+这一步不能省：5.4 里 Spawn 之后要 `Set NpcTrack`，
+5.5 里要根据 `Npc.NpcTrack.StartFrame / EndFrame` 判断该小人是否该显示、
+以及从哪个 `Samples[i]` 开始插值。没有它，蓝图连不上。
+
+**⑤ 编译 + 保存**
+
+之后回到 `BP_Manager`，`AllNpcs` 的 Value Type 里就能搜到 `BP_Npc` 了。
+
+> 想更好看就给 Cylinder 换个亮色材质，不影响功能。
+> 没有模型资源也完全能验收 —— 圆柱 + 前方小方块就够判断
+> 「踩不踩地」和「朝不朝 +X」。
 
 ### 5.3 BeginPlay：读 JSON
 
@@ -262,12 +326,16 @@ Event BeginPlay
 
 ```
 ForEachLoop (Tracks)
- ├─ Spawn Actor from Class (BP_Npc)
+ ├─ Spawn Actor from Class (BP_Npc) → 返回 Npc 引用
  │     Spawn Transform = (Track.Samples[0].X, Track.Samples[0].Y, 0)
  │     Rotation        = (0, Track.Samples[0].Yaw, 0)
- ├─ 把 Track 存到该 Actor 的变量 NpcTrack
- └─ AllNpcs.Add(Track.Id, 生成的 Actor)
+ │     Collision Handling Override = Always Spawn（BP_Npc 已关碰撞，不受影响）
+ ├─ Npc → Set NpcTrack (Track)          // 5.2b 第 ④ 步加的变量
+ └─ AllNpcs.Add(Track.Id, Npc)
 ```
+
+> `Spawn Actor from Class` 的**返回值**就是刚生成的小人，拿它去
+> `Set NpcTrack`，再存进 `AllNpcs`。别只画了 Spawn 节点就往下接。
 
 ### 5.5 Event Tick：插值移动（核心）
 
@@ -276,16 +344,18 @@ Event Tick
  ├─ T        = MP_Clock → Get Time (Seconds)      // 不要累加 DeltaSeconds
  ├─ CurFrame = T * MetaFps                        // A=29.97 / B=29.0
  ├─ ForEach (Id → Npc) in AllNpcs
- │   ├─ 若 CurFrame < NpcTrack.StartFrame 或 > NpcTrack.EndFrame
+ │   ├─ Track = Npc.NpcTrack                    // 5.4 里存进小人身上的
+ │   ├─ 若 CurFrame < Track.StartFrame 或 > Track.EndFrame
  │   │     → Npc.SetActorHiddenInGame(true)
  │   ├─ 否则
  │   │   ├─ SetActorHiddenInGame(false)
- │   │   ├─ i = 找到最后一个 Samples[i].Frame <= CurFrame
- │   │   ├─ Alpha = (CurFrame − Samples[i].Frame) / (Samples[i+1].Frame − Samples[i].Frame)
- │   │   ├─ Pos = Lerp( (Samples[i].X,   Samples[i].Y,   0),
- │   │   │             (Samples[i+1].X, Samples[i+1].Y, 0), Alpha )
- │   │   ├─ Rot = Lerp( Rotator(0, Samples[i].Yaw,   0),
- │   │   │             Rotator(0, Samples[i+1].Yaw, 0), Alpha )
+ │   │   ├─ i = 找到最后一个 Track.Samples[i].Frame <= CurFrame
+ │   │   ├─ Alpha = (CurFrame − Track.Samples[i].Frame)
+ │   │   │          / (Track.Samples[i+1].Frame − Track.Samples[i].Frame)
+ │   │   ├─ Pos = Lerp( (Track.Samples[i].X,   Track.Samples[i].Y,   0),
+ │   │   │             (Track.Samples[i+1].X, Track.Samples[i+1].Y, 0), Alpha )
+ │   │   ├─ Rot = Lerp( Rotator(0, Track.Samples[i].Yaw,   0),
+ │   │   │             Rotator(0, Track.Samples[i+1].Yaw, 0), Alpha )
  │   │   └─ Npc.SetActorLocationAndRotation(Pos, Rot, bSweep = false)
  └─ （接 5.6）
 ```
@@ -295,7 +365,9 @@ Event Tick
 - `bSweep = false`：人群密集时开扫掠会互相推挤，反而偏离真实轨迹
 - 朝向用 **`Lerp (Rotator)`** 节点，引擎内部处理 179° → −179° 的最短路径；
   别对裸 float 做 Lerp，会转 358°
-- `Z` 固定 0，pivot 在脚底，NPC 才会踩在地面上
+- `Z` 固定 0，pivot 在脚底，NPC 才会踩在地面上（见 5.2b 第 ① 步）
+- `Track` 来自**每个小人自己**的 `NpcTrack` 变量（5.2b ④ 建、5.4 存），
+  不是 `BP_Manager` 那个 `Tracks` 数组
 
 ### 5.6 Event Tick 末尾：把 T 推给 UI
 
@@ -353,7 +425,7 @@ Create Widget (Class = WBP_Hud)  → 返回值是 UserWidget
 | 2 | UE 里 Play，看 Output Log | `读文件成功 = true / 长度 = 1011771`，然后 `NPC 数 = 58`（A）/ `34`（B） | 蓝图 Path 绝对路径、`Load String From File` 的 Success、Decode Json 返回值 |
 | 3 | 看小人出现的位置 | 在门外 `X < 0` 一侧，不在店里 | 场景 X 轴反了 → 见 `modeling_spec.md` §1.1 |
 | 4 | 看小人进门方向 | 朝 **+X** 走（进店），出店朝 −X | 还按旧图纸建的 → 整体绕门洞中点转 180° |
-| 5 | 看脚底 | 贴着地面，不悬空不陷地 | NPC pivot 要在脚底；地面 Z=0 |
+| 5 | 看脚底 | 贴着地面，不悬空不陷地 | 见 5.2b ①：Cylinder `Z=+50`、Scale Z=1.7；别用 Character 蓝图 |
 | 6 | 看门洞处 | 人从门洞穿过，不撞墙 | 门洞 `Y` 范围取配置 `counters.p1/p2` |
 | 7 | 看左下 | 透明，能看见 3D 场景 | 没勾 `Supports Transparency` |
 | 8 | 视频播到约 10 s | 面板数字变化，且与视频里过门的人对得上 | 推的不是 `MediaPlayer.GetTime()` |

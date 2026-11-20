@@ -70,8 +70,11 @@ UE5 有两条路，按项目情况选：
 
 ```
 Event BeginPlay
- └─ Load String from File (Path = FPaths::ProjectContentDir() + "Data/npc_tracks.json")
-     └─ Decode Json (String)
+ └─ Load String from File
+      Path = 本地测试: "D:/canteen_twin/demo/entrance_a/npc_tracks.json"   // 绝对路径，直接填字符串
+             打包发布: FPaths::ProjectContentDir() + "Data/npc_tracks.json"
+    ├─ Success → Print String（必须是 true，否则路径错了）
+    └─ Content → Decode Json (String)
          └─ Get Json Object Field "npcs"      → 数组
              └─ ForEachLoop
                  ├─ Get "id"                  → int
@@ -85,7 +88,21 @@ Event BeginPlay
 
 如果项目已经用了 VaRest，`VaRestJsonObject::DecodeJson` 更顺手，能直接 `GetArrayField`。
 
-两种方案都要注意：**把 json 放进 `Content/Data/` 并用 `FPaths::ProjectContentDir()` 拼路径**，打包后路径才不会丢。
+两种方案都要注意路径怎么给，本地测试和打包发布不一样：
+
+- **本地 PIE 测试（推荐）**：`Load String From File` 能读任意磁盘路径，直接填仓库里
+  json 的绝对路径即可，**不要把 json 放进 `Content/`**。`Content/` 下的 `.json`
+  会被 UE 当成「待导入的 DataTable 源文件」，反复弹「数据表选项」对话框；
+  点取消后内容浏览器里看不到它（正常），但弹窗每次都来。
+  详见 [`../demo/README.md`](../demo/README.md) 开头的说明与清理步骤。
+- **打包发布**：绝对路径会失效，改成把 json 纳入项目、用
+  `FPaths::ProjectContentDir() + "Data/npc_tracks.json"` 拼路径，
+  并在 Project Settings → Packaging 里把该目录加入
+  **Additional Non-Asset Directories to Package**，否则打包后读不到。
+
+> 无论哪种，`Load String From File` 路径写错时都会**静默失败**（`Success=false`、
+> 返回空串，`Decode Json` 照样给一个空对象且不报错），所以务必先打印 `Success`
+> 和字符串长度。素材 A 的 json 是 1,011,771 字节。
 
 ---
 
@@ -309,7 +326,8 @@ const snap = frames[f];     // 直接渲染这一帧的累计值，不要在前�
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| NPC 全部挤在原点 | json 解析失败，Samples 为空 | 检查 `Content/Data/` 路径、`Decode Json` 是否返回 true |
+| NPC 全部挤在原点 | json 解析失败，Samples 为空 | 先打印 `Load String From File` 的 `Success` 与字符串长度；检查蓝图 Path、`Decode Json` 返回值 |
+| UE 反复弹「数据表选项 / 导入为 DataTable」 | json 被放进了 `Content/` | 从 `Content/` 删掉，蓝图改读仓库里的绝对路径；点「取消」不影响蓝图读取 |
 | NPC 朝反方向走 | 场景 X/Y 轴没对齐，或还按旧图纸（进店 = −X）建 | 门洞墙贴 X=0、左柱贴 Y=0、室内朝 +X；见 `modeling_spec.md` §1.1 |
 | NPC 抖 | 没做插值，直接取整帧位置 | 按上面的 Alpha 做 Lerp |
 | 人和视频不同步 | 用 Tick 累积时间驱动 | 改成读 `MediaPlayer.GetTime()` |

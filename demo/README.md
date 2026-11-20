@@ -1,8 +1,42 @@
 # 本地测试开箱包：文件放哪？
 
-> **一句话答案**：把仓库 clone 到任意**纯英文、无空格**的目录，
-> 然后**只复制 1 个文件**到 UE 工程（`npc_tracks.json` → `Content/Data/`）。
-> HTML 和视频留在仓库原地不用动，UE 的 Web Browser 直接把 URL 指过来。
+> **一句话答案**：**一个文件都不用复制进 UE 工程。**
+> clone 到纯英文路径后，蓝图 `Load String From File` 直接读仓库里的
+> `demo/entrance_a/npc_tracks.json` 绝对路径；Web Browser 的 URL 指到同目录的
+> `dashboard_live.html`。三个文件原地不动，UE 里不需要出现它们。
+
+---
+
+## ⚠️ 别把 json 放进 `Content/`（会一直弹导入框）
+
+很多人第一反应是把 `npc_tracks.json` 复制到 `<UE项目>/Content/Data/`。**不要这么做。**
+
+UE 的内容浏览器只监控 `Content/` 目录，发现 `.json` 会认为它是
+**待导入的 DataTable 源文件**，于是弹「数据表选项」对话框要求选行类型：
+
+```
+当前文件 /Game/Data/npc_tracks
+导入为  DataTable
+选择DataTable的行类型 ...
+```
+
+- 点**取消** → 不生成 `.uasset`，内容浏览器里自然看不到这个文件，
+  但**磁盘上的 json 还在**，蓝图照样能读 → 这其实是正常状态，不是失败。
+- 点**应用** → 会生成一个错误的空 DataTable 资产，必须删掉。
+- 只要文件还留在 `Content/` 下，这个弹窗**每次都会再出现**，很烦且有误点风险。
+
+我们的数据是**嵌套结构**（`npcs[].samples[]`），DataTable 表达不了，
+而且本来就是靠蓝图 `Load String From File` 运行时读纯文本，
+**根本不需要变成 UE 资产**。
+
+**根治办法：让 json 待在 `Content/` 之外。** 蓝图路径填绝对路径即可，
+UE 完全不会扫描它，弹窗彻底消失。
+
+> 如果你已经放进 `Content/Data/` 了：
+> 1. 内容浏览器里若有 `npc_tracks` 资产（误点过「应用」），右键 **Delete**；
+> 2. 用资源管理器删掉 `<UE项目>/Content/Data/npc_tracks.json`；
+> 3. 重启编辑器，弹窗不再出现；
+> 4. 蓝图 Path 按下面第 2 步改成绝对路径。
 
 ---
 
@@ -44,7 +78,7 @@ D:\canteen_twin\                          ← 仓库根
 │   ├── entrance_a\
 │   │   ├── dashboard_live.html    ★ Web Browser 的 URL 指它
 │   │   ├── annotated_web.mp4      ★ 必须与 HTML 同目录，别改名
-│   │   └── npc_tracks.json        ★ 唯一要复制进 UE 的文件
+│   │   └── npc_tracks.json        ★ 蓝图直接读它的绝对路径
 │   └── entrance_b\                       B 素材，结构完全相同
 ├── examples\                             真实数据样例（进阶用）
 ├── ui\  src\  tools\  configs\  docs\    源码 / 文档，测试不用动
@@ -52,10 +86,10 @@ D:\canteen_twin\                          ← 仓库根
 
 D:\UEProjects\CanteenTwin\                ← 你的 UE 工程
 └── Content\
-    ├── Data\
-    │   └── npc_tracks.json        ← 从 demo\entrance_a\ 复制过来
-    └── Movies\                          （仅"接法 B"才用；接法 A 空着即可）
+    └── （不需要 Data 文件夹，不需要放任何 json）
 ```
+
+**注意**：UE 工程里什么都不放。`Content/Movies/` 也只有"接法 B"才需要。
 
 ---
 
@@ -74,17 +108,24 @@ git clone https://github.com/Hi-Mr-clutch/canteen_twin.git D:\canteen_twin
 > `file:///` 里的中文路径容易解析失败，白屏很难查。
 > `D:\canteen_twin\` 可以，`D:\我的项目\饭堂 孪生\` 不行。
 
-### 第 2 步 · 只复制 1 个文件到 UE 工程
+### 第 2 步 · 记下 json 的绝对路径（**不用复制文件**）
 
-| 从 | 复制到 | 用途 |
-|---|---|---|
-| `D:\canteen_twin\demo\entrance_a\npc_tracks.json` | `D:\UEProjects\CanteenTwin\Content\Data\npc_tracks.json` | 蓝图读它生成 NPC |
+蓝图 `BP_Manager` 的 BeginPlay 里，`Load String From File` 的 `Path` 直接填：
 
-`Content\Data\` 文件夹不存在就自己新建。文件名保持 `npc_tracks.json` 不变，
-蓝图里写死的是 `FPaths::ProjectContentDir() + "Data/npc_tracks.json"`。
+```text
+D:/canteen_twin/demo/entrance_a/npc_tracks.json
+```
 
-**A / B 二选一**：一次只放一份，别把两份都丢进 `Content\Data\`（同名会覆盖）。
-先测 A（1080p，58 人），想换 B 就把 `entrance_b` 那份再复制过来覆盖。
+- 用 `/`，不要 `\`；**不要** `FPaths::ProjectContentDir()` 拼接
+- 这是纯磁盘路径，UE 不会把它当资产，也不会弹导入框
+- 文件内容约 **988 KB**（1,011,771 字节）；先 `Print String` 长度确认读到了
+
+**A / B 二选一**：想换 B，把路径里的 `entrance_a` 改成 `entrance_b`，
+同时把第 3 步 URL 里的 `entrance_a` 也改成 `entrance_b`，**两边要一致**。
+
+> 这只是**本地 PIE 测试**的做法，最省事。将来要把游戏**打包发布**时，
+> 绝对路径会失效，那时再按 [`docs/ue5_integration.md`](../docs/ue5_integration.md)
+> 第 2 节改用 `FPaths::ProjectContentDir()` 并把 json 纳入打包内容。
 
 ### 第 3 步 · 让 UE 指到 HTML 和视频（**不用复制**）
 
@@ -99,19 +140,17 @@ file:///D:/canteen_twin/demo/entrance_a/dashboard_live.html
   页面用相对路径自动找到视频 → **右侧视频窗口直接出画面**
 - 数据已内嵌进 HTML，所以也不需要 `realtime.json` 跟着放
 
-> 换成 B 素材：把 URL 里的 `entrance_a` 改成 `entrance_b`，
-> 同时把第 2 步的 `npc_tracks.json` 也换成 B 那份，**两边要一致**。
-
 ### 接法 A 与接法 B 放文件的区别
 
 | | 页面内播放（**推荐，默认**） | UE Media Texture 播放（接法 B） |
 |---|---|---|
 | HTML | 留在仓库，URL 指过去 | 同左 |
+| `npc_tracks.json` | **留在仓库，蓝图读绝对路径** | 同左 |
 | 视频 | 留在仓库、与 HTML 同目录 | **再复制一份**到 `Content\Movies\`，并建 File Media Source |
-| `Content\Data\` | 放 `npc_tracks.json` | 同左 |
+| `Content\Data\` | **不需要，不要建** | 同左 |
 | 额外 | 无 | 蓝图调 `CanteenTwin.useExternalVideo(true)` |
 
-接法 A 最省事：UE 里**只放 1 个 json**，视频由页面自己播。
+接法 A 最省事：UE 工程里**一个文件都不用放**，视频由页面自己播。
 两种接法的细节见 `docs/ue5_integration.md` 第 5.3 节。
 
 ---
@@ -121,7 +160,9 @@ file:///D:/canteen_twin/demo/entrance_a/dashboard_live.html
 1. **别把 `dashboard_live.html` 和 `annotated_web.mp4` 分开** ——
    页面写的是相对路径 `annotated_web.mp4`，一分开右侧就黑屏/提示无视频。
 2. **别改视频文件名** —— 想换视频就用 `tools/build_ui.py` 重新生成页面。
-3. **别用 `out\` 里的路径写死在 UE 里** —— `out/` 不在仓库，
+3. **别把 `npc_tracks.json` 放进 `Content/`** —— 会反复弹「数据表选项」，
+   而且取消导入后内容浏览器里看不到它（正常，蓝图读的是磁盘文件）。
+4. **别用 `out\` 里的路径写死在 UE 里** —— `out/` 不在仓库，
    本地 clone 后没有这个目录；用 `demo\` 里的成品。
 
 另外：`annotated.mp4`（89 MiB，mp4v 编码）**不能用**，
@@ -134,13 +175,16 @@ Chrome / CEF 播不了。这里给的是转码后的 `annotated_web.mp4`（H.264
 | 检查 | 期望 |
 |---|---|
 | 双击 `demo\entrance_a\dashboard_live.html` | 右侧出视频、顶部数字随时间跳（**不用 UE 就能验**） |
-| UE 里 `Content\Data\npc_tracks.json` 存在 | 文件名和路径与蓝图一致 |
+| 蓝图 `Load String From File` 的 `Success` | `true`，字符串长度 ≈ 1,011,771 |
 | UE Play 后 Output Log | `NPC 数 = 58`（A）/ `34`（B） |
 | URL 粘贴到浏览器地址栏 | 能打开同一张看板 |
+| UE 编辑器 | 不再弹「数据表选项」 |
 
 第一步在浏览器里过了，说明文件放对了、数据没缺；
 剩下才需要开 UE 接蓝图。完整 10 条验收清单在
 [`docs/local_test_guide.md`](../docs/local_test_guide.md) 第 7 节。
+
+> 内容浏览器里**看不到** `npc_tracks.json` 是正确的，别去 Import、别拖拽。
 
 ---
 

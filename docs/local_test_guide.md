@@ -4,7 +4,9 @@
 
 > **从 GitHub clone 下来做本地测试的，先读 [`demo/README.md`](../demo/README.md)**——
 > 那里讲清了「clone 到哪、哪个文件放哪、URL 怎么填」。
-> 简单说：**只复制 1 个 `npc_tracks.json` 到 UE 的 `Content/Data/`，HTML 和视频留在仓库原地。**
+> 简单说：**一个文件都不用复制进 UE 工程。** 蓝图直接读仓库里
+> `demo/entrance_a/npc_tracks.json` 的绝对路径，HTML 和视频也留在仓库原地。
+> **千万别把 json 放进 `Content/`**，否则 UE 会反复弹「数据表选项」导入框。
 > 下面手册里凡出现 `out/` 的地方，都是「自己重跑管线」时的输出位置；
 > 用开箱包时一律换成 `demo/entrance_a/`（或 `entrance_b/`）。
 
@@ -29,7 +31,7 @@
 
 | 文件 | 开箱包里的位置 | 放到哪 | 谁用 |
 |---|---|---|---|
-| `npc_tracks.json` | `demo/entrance_a/npc_tracks.json` | `<UE项目>/Content/Data/` | **蓝图**：NPC 逐帧坐标 |
+| `npc_tracks.json` | `demo/entrance_a/npc_tracks.json` | **不用动**，蓝图读绝对路径 | **蓝图**：NPC 逐帧坐标 |
 | `dashboard_live.html` | `demo/entrance_a/dashboard_live.html` | **不用动**，URL 指过去 | **Web Browser 控件** |
 | `annotated_web.mp4` | `demo/entrance_a/annotated_web.mp4` | **不用动**，与 HTML 同目录 | 页面右侧视频 |
 
@@ -82,11 +84,22 @@ python tools/build_ui.py --data examples/realtime_a_1080p.json \
 2. 菜单 `编辑 Edit → 插件 Plugins`，搜出两个插件并 **Enable**，然后**重启编辑器**：
    - `JSON Blueprint` —— 读 `npc_tracks.json`
    - `Web Browser` —— 显示 UI
-3. 在 **Windows 资源管理器**（不是 UE 内容浏览器）里，到 `<项目>/Content/` 下新建
-   `Data` 和 `Movies` 两个文件夹：
-   - 把 `demo/entrance_a/npc_tracks.json` 复制进 `Content/Data/`
-   - 接法 A（默认）**不需要**往 `Movies` 放东西；接法 B 才把 `annotated_web.mp4` 复制进去
-   - json / mp4 不是 UE 资产，**别用 Import**，直接文件管理器复制
+3. **不要往 `Content/` 里放任何 json**。蓝图直接读仓库里的绝对路径：
+
+   ```text
+   D:/canteen_twin/demo/entrance_a/npc_tracks.json
+   ```
+
+   - ⚠️ 把 `.json` 放进 `Content/` 会被 UE 当成「待导入的 DataTable 源文件」，
+     每次都弹「数据表选项」；点「取消」后内容浏览器里看不到它（**这是正常的**，
+     蓝图读的是磁盘文件），但弹窗会反复出现。详见
+     [`demo/README.md`](../demo/README.md) 开头的说明与清理步骤
+   - 如果已经放进去了：删掉 `Content/Data/npc_tracks.json`、删掉误生成的
+     `npc_tracks` 资产，重启编辑器，再把蓝图 Path 改成上面的绝对路径
+   - 接法 A（默认）`Content/Movies/` 也**不需要**放东西；接法 B 才把
+     `annotated_web.mp4` 复制进去
+   - 这是**本地 PIE 测试**的做法；将来打包发布时绝对路径会失效，再按
+     `docs/ue5_integration.md` 第 2 节改用 `FPaths::ProjectContentDir()`
 4. 建模自检（选中物体看右下角 Details → Transform → Location）：
 
 | 物体 | 应该是 |
@@ -188,8 +201,9 @@ FNpcTrack  : int Id;   int StartFrame;  int EndFrame;  TArray<FNpcSample> Sample
 
 ```
 Event BeginPlay
- ├─ Path      = FPaths::ProjectContentDir() + "Data/npc_tracks.json"
- ├─ JsonStr   = Load String From File (Path)
+ ├─ Path      = "D:/canteen_twin/demo/entrance_a/npc_tracks.json"   // 直接填字符串，绝对路径
+ ├─ (ok, JsonStr) = Load String From File (Path)                      // ok 是 Success(bool)
+ ├─ Print String ("读文件成功 = " + ok + " / 长度 = " + Len(JsonStr))  // 期望 true / 1011771
  ├─ JsonObj   = Decode Json (JsonStr)              // 返回 bool，false 就 Print "JSON 解析失败"
  ├─ MetaObj   = Get Object Field ("meta")
  ├─ MetaFps   = MetaObj → Get Number Field ("fps")
@@ -210,7 +224,14 @@ Event BeginPlay
 ```
 
 > 不同版本 JSON Blueprint 的节点名略有差别，认准 `Get ... Field` 系列即可。
-> `Print String` 出来不是 58 / 34，说明路径或 json 放错了，先别往下做。
+> `Load String From File` **会静默失败**：路径写错时 `Success=false`、`JsonStr` 是空串，
+> `Decode Json` 照样返回一个空对象且**不报错**，后面 `npcs` 数组长度为 0、
+> 小人一个都不出现，还查不出原因。所以一定先打印第 205 行那句。
+> 期望 `true / 1011771`；再打印 `NPC 数` 应为 58（A）/ 34（B），不对就别往下做。
+>
+> **为什么不用 `FPaths::ProjectContentDir()`**：那要求把 json 放进 `Content/`，
+> 而 `Content/` 下的 `.json` 会被 UE 当成 DataTable 源反复弹导入框。
+> 本地测试直接填绝对路径最省事；打包发布才需要改回 Content 方案。
 
 ### 5.4 自定义事件 `SpawnAllNpcs`（BeginPlay 末尾调用）
 
@@ -277,7 +298,8 @@ file:///D:/canteen_twin/demo/entrance_a/dashboard_live.html
 ```
 
 > 三个斜杠；路径用 `/` 不要用 `\`；**目录名别带中文和空格**，CEF 容易解析失败。
-> 换 B 素材就把 `entrance_a` 改成 `entrance_b`，同时把 `Content/Data/` 的 json 也换成 B。
+> 换 B 素材就把 `entrance_a` 改成 `entrance_b`，**同时**把 5.3 节蓝图 Path
+> 里的 `entrance_a` 也改成 `entrance_b`，两边要一致。
 
 6. 在 `BP_Manager` 的 BeginPlay 里（或关卡蓝图）：
 
@@ -297,7 +319,7 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 | # | 操作 | 期望结果 | 不对时查 |
 |---|---|---|---|
 | 1 | 双击 `demo/entrance_a/dashboard_live.html` | 右侧出视频、顶部数字随时间变 | mp4 与 html 分开 / 用了 `annotated.mp4` |
-| 2 | UE 里 Play，看 Output Log | `NPC 数 = 58`（A）/ `34`（B） | `Content/Data/` 路径、Decode Json 返回值 |
+| 2 | UE 里 Play，看 Output Log | `读文件成功 = true / 长度 = 1011771`，然后 `NPC 数 = 58`（A）/ `34`（B） | 蓝图 Path 绝对路径、`Load String From File` 的 Success、Decode Json 返回值 |
 | 3 | 看小人出现的位置 | 在门外 `X < 0` 一侧，不在店里 | 场景 X 轴反了 → 见 `modeling_spec.md` §1.1 |
 | 4 | 看小人进门方向 | 朝 **+X** 走（进店），出店朝 −X | 还按旧图纸建的 → 整体绕门洞中点转 180° |
 | 5 | 看脚底 | 贴着地面，不悬空不陷地 | NPC pivot 要在脚底；地面 Z=0 |
@@ -322,6 +344,8 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 | 数字不动但小人在动 | 推的是 Tick 累计时间 | 统一用 `MP_Clock.GetTime()` |
 | 小人和视频差半秒 | `MetaFps` 填成 20 了 | 从 `meta.fps` 读：A=29.97，B=29.0 |
 | 小人全挤在原点 | json 没解析出来，Samples 为空 | 看第 2 条日志 |
+| 一打开 UE 就弹「数据表选项 / 导入为 DataTable」 | `npc_tracks.json` 被放进了 `Content/` | 从 `Content/` 删掉它（和误生成的资产），蓝图改读仓库里的绝对路径；点「取消」本身不影响蓝图读取 |
+| 内容浏览器里看不到 `npc_tracks.json` | 它不是 UE 资产，本来就不显示 | **正常**，别去 Import / 拖拽；蓝图读的是磁盘文件 |
 | 小人抖动 | 没插值，直接取整帧位置 | 按 5.5 做 Alpha / Lerp |
 | 小人朝反方向走 | 场景还按旧坐标（进店 = −X）建 | 门洞墙 X=0、左柱 Y=0、室内朝 +X |
 

@@ -23,8 +23,10 @@ video.mp4 ─▶ 检测(人) ─▶ 跟踪(稳定ID) ─▶ 四点透视(像素�
 > `git clone https://github.com/Hi-Mr-clutch/canteen_twin.git` 后先看
 > **[`demo/README.md`](demo/README.md)**：仓库已附带 A / B 两套**开箱成品**
 > （`npc_tracks.json` + `dashboard_live.html` + H.264 视频），不用装 Python、不用重跑管线。
-> **只需把 1 个 `npc_tracks.json` 复制到 UE 的 `Content/Data/`**，HTML 和视频留在仓库原地，
-> Web Browser 的 URL 指过去即可。零基础的蓝图接线 / 插视频 / 验收清单见
+> **一个文件都不用复制进 UE 工程**：蓝图 `Load String From File` 直接读仓库里
+> `demo/entrance_a/npc_tracks.json` 的绝对路径，HTML 和视频留在原地、
+> Web Browser 的 URL 指过去即可。**别把 json 放进 `Content/`**（会反复弹
+> 「数据表选项」导入框）。零基础的蓝图接线 / 插视频 / 验收清单见
 > [`docs/local_test_guide.md`](docs/local_test_guide.md)。
 
 ---

@@ -172,8 +172,9 @@ python tools/build_ui.py --data examples/realtime_a_1080p.json \
 2. 它把「读文件 + 解析」合并成一个节点，失败时分不清是路径错还是格式错
 3. 读 JSON 属于 **5.3**，和「开时钟」是两件事；硬接在后面会把执行顺序搞乱
 
-正确做法：**右键删掉这个节点**。5.3 改用 `Load String From File`，
-能单独打印 `Success` 和字符串长度，出问题一眼能定位。
+正确做法：**右键删掉这个节点**。读 JSON 全部放到 5.3，
+用同一个 `Load Json from File`、单独一条链接在 `Play` 后面，
+先只打印 `npcs` 数组长度验证文件读对了，再往下组装轨迹。
 
 **⑤ 怎么确认时钟真的在走**
 
@@ -344,8 +345,24 @@ NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
 ### 5.3 BeginPlay：读 JSON（接在 4.1 的 `Play` 后面）
 
 > ⚠️ **不要新建第二个 `Event BeginPlay`。** 把 4.1 里 `Play` 右侧的**白色箭头**
-> 直接拖到 `Load String From File` 左侧的白色执行输入。
-> 整条链是：`BeginPlay → Open Source → Set Looping → Play → Load String From File → …`
+> 直接拖到 `Load Json from File` 左侧的白色执行输入。
+> 整条链是：`BeginPlay → Open Source → Set Looping → Play → Load Json from File → …`
+
+**本手册用 `Load Json from File`，不用 `Load String From File`**
+
+两个节点的区别：
+
+| 节点 | 输出 | 还要不要 `Decode Json` |
+|---|---|---|
+| `Load Json from File` | 直接是 **Json 对象** | **不用**，少一个节点 |
+| `Load String From File` | 一段字符串 | 要，再 `Decode Json` 一次 |
+
+`Load String From File` 在部分 UE5 版本的蓝图搜索里**搜不到**（分类被挪走/改名），
+所以统一改用 `Load Json from File`。它来自 **Json Blueprint Utilities** 插件，
+你在插件面板勾上后就有了，效果完全一样、还更省事。
+
+> 搜节点的小技巧：右上角把 **「上下文关联」关掉**再搜，否则只显示和当前
+> 选中节点相关的操作，很多节点会被过滤掉。搜不到时先试这一步。
 
 **先分清两种线（后面全靠它，不然一定连乱）**
 
@@ -357,11 +374,21 @@ NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
 > 手册里的伪代码用 `→` 表示**数据**流向，只有最左边那条竖线代表执行流。
 > 看不清就把"白色箭头"和"彩色细线"分开画，两者**永远不交叉接**。
 
-**① `File Name` 引脚怎么填（它要 String，不能直接打字）**
+**① `File` 引脚怎么填（它要 File Path 结构，不能直接打字）**
 
-- **简单**：空白处右键 → 搜 `String` → 选 **`Make Literal String`**，
-  在节点上填 `D:/canteen_twin/demo/entrance_a/npc_tracks.json`，再连到 `File Name`
-- **整齐**：建一个 String 变量 `JsonPath`，默认值填这个路径，拖出来连到 `File Name`
+`Load Json from File` 只有一个输入 `File`，类型是 **`File Path`** 结构体，
+展开后里面才是字符串。三种填法任选：
+
+- **最省事**：右键点 `File` 引脚 → **`Split Struct Pin`（拆分结构体引脚）**，
+  引脚会裂成 `File Path` 一个字符串框，直接把绝对路径打进去
+- 或者从 `File` 引脚拖出来 → 搜 `Make File Path` → 在 `File Path` 里填字符串
+- 或者建一个 **`File Path` 类型变量** `JsonPath`，默认值填路径，拖进 `File`
+
+路径统一用 **`/`**，不要用 `\`：
+
+```text
+D:/canteen_twin/demo/entrance_a/npc_tracks.json
+```
 
 **② 第一步：先只做到「打印出 58」**
 
@@ -369,18 +396,14 @@ NPC 自己不需要 Tick（58 个空 Tick 是白浪费）。
 
 | 节点 | 执行流（白线） | 数据线 |
 |---|---|---|
-| `Load String From File` | 左 ← **`Play` 右** | `File Name` ← `Make Literal String`（上面的路径） |
-| `Branch` | 左 ← `Load String From File` 右 | `Condition` ← `Load String From File` 的 **`Success`** |
-| `Print String`（失败） | 左 ← `Branch` 的 **False** | `In String` = `读文件失败，检查路径` |
-| `Print String`（成功） | 左 ← `Branch` 的 **True** | `In String` ← 下面这条数据链 |
+| `Load Json from File` | 左 ← **`Play` 右** | `File` ← ① 里填的绝对路径（`File Path` 结构） |
+| `Print String`（验证用） | 左 ← `Load Json from File` 右 | `In String` ← 下面这条数据链 |
 
 数据链（全是彩色细线，**不接执行流**）：
 
 ```
-Load String From File → Content
+Load Json from File → Return Value
         ↓
-   Decode Json (Json String)
-        ↓ Json Object
    Get Array Field ("npcs")
         ↓ TArray
    Length (数组长度，int)
@@ -388,15 +411,17 @@ Load String From File → Content
    Print String 的 In String（int 会自动转成字符串）
 ```
 
-Play 后 Output Log 应出现：
-- 失败 → `读文件失败，检查路径`
-- 成功 → 打印出 **58**（A）/ **34**（B）
+Play 后 Output Log 应出现 **58**（A）/ **34**（B）。
+
+> **失败不会报错**：路径写错时 `Load Json from File` 返回一个**空 Json**，
+> 不弹窗、不红字，`Get Array Field` 拿到空数组，`Length` 打印 **0**。
+> 所以看到 0 就是路径错，不是 JSON 格式错——先查 ① 那行路径。
 
 > 看不到 58 就别往下做。这一步只验证"文件读到了、JSON 解开了、npcs 数组有 58 个"。
 
 **③ 第二步：把 58 条轨迹装进 `Tracks`**
 
-在 `Print String`（成功）后面接 `ForEachLoop`，循环体里逐个取字段：
+在 `Print String` 后面接 `ForEachLoop`（这时可以把它删掉，换成 `Tracks.Add`），循环体里逐个取字段：
 
 ```
 ForEachLoop (数组 = Get Array Field "npcs")
@@ -419,20 +444,19 @@ ForEachLoop (数组 = Get Array Field "npcs")
 
 **④ 顺便把 `MetaFps` 读出来**
 
-`Decode Json` 的 `Json Object` 同时接一条数据线：
+`Load Json from File` 的 `Return Value` 再分一条数据线：
 
 ```
 Get Object Field ("meta") → Get Number Field ("fps") → Set MetaFps
 ```
 
-`Set MetaFps` 有执行引脚，随便挂在 `Decode Json` 之后的某条执行流上即可；
+`Set MetaFps` 有执行引脚，挂在第 ③ 步任意一条执行流上即可；
 **关键是 `MetaFps` 要在第一次 Tick 之前就有值**，否则第一帧 `CurFrame` 是 0。
 
 > 不同版本 JSON Blueprint 的节点名略有差别，认准 `Get ... Field` 系列即可。
-> `Load String From File` **会静默失败**：路径写错时 `Success=false`、返回空串，
-> `Decode Json` 照样给一个空对象且**不报错**，后面 `npcs` 数组长度为 0、
-> 小人一个都不出现，还查不出原因。所以 ② 里那个 `Branch` 不能省。
-> 期望打印 **58**（A）/ **34**（B），不对就别往下做。
+> `Load Json from File` **会静默失败**：路径写错时返回空 Json 且**不报错**，
+> 后面 `npcs` 数组长度为 0、小人一个都不出现，还查不出原因。
+> 所以第 ② 步那个 `Length` 打印不能省，期望 **58**（A）/ **34**（B），不对就别往下做。
 >
 > **为什么不用 `FPaths::ProjectContentDir()`**：那要求把 json 放进 `Content/`，
 > 而 `Content/` 下的 `.json` 会被 UE 当成 DataTable 源反复弹导入框。
@@ -541,7 +565,7 @@ Create Widget (Class = WBP_Hud)  → 返回值是 UserWidget
 | # | 操作 | 期望结果 | 不对时查 |
 |---|---|---|---|
 | 1 | 双击 `demo/entrance_a/dashboard_live.html` | 右侧出视频、顶部数字随时间变 | mp4 与 html 分开 / 用了 `annotated.mp4` |
-| 2 | UE 里 Play，看 Output Log | `读文件成功 = true / 长度 = 1011771`，然后 `NPC 数 = 58`（A）/ `34`（B） | 蓝图 Path 绝对路径、`Load String From File` 的 Success、Decode Json 返回值 |
+| 2 | UE 里 Play，看 Output Log | 先打 **58**（A）/ **34**（B），随后 `NPC 数 = 58` / `34` | 蓝图 `File` 引脚的绝对路径、`Get Array Field("npcs")` 的返回值 |
 | 3 | 看小人出现的位置 | 在门外 `X < 0` 一侧，不在店里 | 场景 X 轴反了 → 见 `modeling_spec.md` §1.1 |
 | 4 | 看小人进门方向 | 朝 **+X** 走（进店），出店朝 −X | 还按旧图纸建的 → 整体绕门洞中点转 180° |
 | 5 | 看脚底 | 贴着地面，不悬空不陷地 | 见 5.2b ①：用 `SKM_Manny` 时 `Z` 保持 0；用 Cylinder 才设 `Z=+50`。都别用 Character 蓝图 |

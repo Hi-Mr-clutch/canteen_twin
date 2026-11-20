@@ -1,8 +1,8 @@
 # 本地测试开箱包：文件放哪？
 
 > **一句话答案**：**一个文件都不用复制进 UE 工程。**
-> clone 到纯英文路径后，蓝图 `Load String From File` 直接读仓库里的
-> `demo/entrance_a/npc_tracks.json` 绝对路径；Web Browser 的 URL 指到同目录的
+> clone 到纯英文路径后，蓝图 `Load Json from File` 直接读仓库里
+> `demo/entrance_a/npc_tracks.json` 的绝对路径；Web Browser 的 URL 指到同目录的
 > `dashboard_live.html`。三个文件原地不动，UE 里不需要出现它们。
 
 ---
@@ -26,7 +26,7 @@ UE 的内容浏览器只监控 `Content/` 目录，发现 `.json` 会认为它�
 - 只要文件还留在 `Content/` 下，这个弹窗**每次都会再出现**，很烦且有误点风险。
 
 我们的数据是**嵌套结构**（`npcs[].samples[]`），DataTable 表达不了，
-而且本来就是靠蓝图 `Load String From File` 运行时读纯文本，
+而且本来就是靠蓝图 `Load Json from File` 运行时直接解析，
 **根本不需要变成 UE 资产**。
 
 **根治办法：让 json 待在 `Content/` 之外。** 蓝图路径填绝对路径即可，
@@ -110,7 +110,8 @@ git clone https://github.com/Hi-Mr-clutch/canteen_twin.git D:\canteen_twin
 
 ### 第 2 步 · 记下 json 的绝对路径（**不用复制文件**）
 
-蓝图 `BP_Manager` 的 BeginPlay 里，`Load String From File` 的 `Path` 直接填：
+蓝图 `BP_Manager` 的 BeginPlay 里，`Load Json from File` 的 `File` 引脚
+（**File Path 结构**，右键 → `Split Struct Pin` 拆开）直接填：
 
 ```text
 D:/canteen_twin/demo/entrance_a/npc_tracks.json
@@ -118,7 +119,8 @@ D:/canteen_twin/demo/entrance_a/npc_tracks.json
 
 - 用 `/`，不要 `\`；**不要** `FPaths::ProjectContentDir()` 拼接
 - 这是纯磁盘路径，UE 不会把它当资产，也不会弹导入框
-- 文件内容约 **988 KB**（1,011,771 字节）；先 `Print String` 长度确认读到了
+- 文件内容约 **988 KB**（1,011,771 字节）；接上 `Get Array Field("npcs")` → `Length`
+  → `Print String`，应打印 **58**（A）/ **34**（B）
 
 **A / B 二选一**：想换 B，把路径里的 `entrance_a` 改成 `entrance_b`，
 同时把第 3 步 URL 里的 `entrance_a` 也改成 `entrance_b`，**两边要一致**。
@@ -175,7 +177,7 @@ Chrome / CEF 播不了。这里给的是转码后的 `annotated_web.mp4`（H.264
 | 检查 | 期望 |
 |---|---|
 | 双击 `demo\entrance_a\dashboard_live.html` | 右侧出视频、顶部数字随时间跳（**不用 UE 就能验**） |
-| 蓝图 `Load String From File` 的 `Success` | `true`，字符串长度 ≈ 1,011,771 |
+| 蓝图 `Load Json from File` → `Get Array Field("npcs")` → `Length` | `58`（A）/ `34`（B） |
 | UE Play 后 Output Log | `NPC 数 = 58`（A）/ `34`（B） |
 | URL 粘贴到浏览器地址栏 | 能打开同一张看板 |
 | UE 编辑器 | 不再弹「数据表选项」 |

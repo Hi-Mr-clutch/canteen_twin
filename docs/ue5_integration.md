@@ -70,19 +70,24 @@ UE5 有两条路，按项目情况选：
 
 ```
 Event BeginPlay
- └─ Load String from File
-      Path = 本地测试: "D:/canteen_twin/demo/entrance_a/npc_tracks.json"   // 绝对路径，直接填字符串
-             打包发布: FPaths::ProjectContentDir() + "Data/npc_tracks.json"
-    ├─ Success → Print String（必须是 true，否则路径错了）
-    └─ Content → Decode Json (String)
-         └─ Get Json Object Field "npcs"      → 数组
-             └─ ForEachLoop
-                 ├─ Get "id"                  → int
-                 ├─ Get "start_frame"         → int
-                 └─ Get "samples"             → 数组，缓存到该 NPC 的 TArray<FSample>
+ └─ Load Json from File
+      File = 本地测试: "D:/canteen_twin/demo/entrance_a/npc_tracks.json"   // File Path 结构，拆引脚填
+             打包发布: "<ProjectContentDir>/Data/npc_tracks.json"          // 见下方说明
+         └─ Return Value（已是 Json 对象，不用再 Decode）
+             ├─ Get Array Field "npcs"            → 数组
+             │   └─ ForEachLoop
+             │       ├─ Get Integer Field "id"            → int
+             │       ├─ Get Integer Field "start_frame"   → int
+             │       └─ Get Array Field "samples"         → 数组，缓存到该 NPC 的 TArray<FSample>
+             └─ Get Object Field "meta" → Get Number Field "fps" → MetaFps
 ```
 
 `FSample` 建议做成 Blueprint Struct：`float X / float Y / float Yaw / int Frame`。
+
+> 用 `Load Json from File` 而不是 `Load String From File`：后者在部分 UE5 版本的
+> 蓝图搜索里搜不到（分类被挪走），前者来自同一个 **Json Blueprint Utilities**
+> 插件，一步直接拿到 Json，还省掉 `Decode Json`。若搜索里什么都找不到，
+> 先把搜索面板右上角的 **「上下文关联」关掉**再搜。
 
 ### 方案 B：VaRest 插件
 
@@ -90,8 +95,8 @@ Event BeginPlay
 
 两种方案都要注意路径怎么给，本地测试和打包发布不一样：
 
-- **本地 PIE 测试（推荐）**：`Load String From File` 能读任意磁盘路径，直接填仓库里
-  json 的绝对路径即可，**不要把 json 放进 `Content/`**。`Content/` 下的 `.json`
+- **本地 PIE 测试（推荐）**：`Load Json from File` 能读任意磁盘路径，直接把仓库里
+  json 的绝对路径填进 `File Path` 即可，**不要把 json 放进 `Content/`**。`Content/` 下的 `.json`
   会被 UE 当成「待导入的 DataTable 源文件」，反复弹「数据表选项」对话框；
   点取消后内容浏览器里看不到它（正常），但弹窗每次都来。
   详见 [`../demo/README.md`](../demo/README.md) 开头的说明与清理步骤。
@@ -100,9 +105,8 @@ Event BeginPlay
   并在 Project Settings → Packaging 里把该目录加入
   **Additional Non-Asset Directories to Package**，否则打包后读不到。
 
-> 无论哪种，`Load String From File` 路径写错时都会**静默失败**（`Success=false`、
-> 返回空串，`Decode Json` 照样给一个空对象且不报错），所以务必先打印 `Success`
-> 和字符串长度。素材 A 的 json 是 1,011,771 字节。
+> 无论哪种，`Load Json from File` 路径写错时都会**静默失败**（返回一个空 Json，
+> 不报错），所以务必先打印 `Get Array Field "npcs"` 的长度。素材 A 应为 58，B 应为 34。
 
 ---
 
@@ -330,7 +334,7 @@ const snap = frames[f];     // 直接渲染这一帧的累计值，不要在前�
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| NPC 全部挤在原点 | json 解析失败，Samples 为空 | 先打印 `Load String From File` 的 `Success` 与字符串长度；检查蓝图 Path、`Decode Json` 返回值 |
+| NPC 全部挤在原点 | json 没读到，Samples 为空 | 先打印 `Get Array Field("npcs")` 的 `Length`（应为 58/34）；检查蓝图 `File` 引脚里的绝对路径 |
 | UE 反复弹「数据表选项 / 导入为 DataTable」 | json 被放进了 `Content/` | 从 `Content/` 删掉，蓝图改读仓库里的绝对路径；点「取消」不影响蓝图读取 |
 | NPC 朝反方向走 | 场景 X/Y 轴没对齐，或还按旧图纸（进店 = −X）建 | 门洞墙贴 X=0、左柱贴 Y=0、室内朝 +X；见 `modeling_spec.md` §1.1 |
 | NPC 抖 | 没做插值，直接取整帧位置 | 按上面的 Alpha 做 Lerp |

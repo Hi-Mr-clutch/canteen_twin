@@ -1,7 +1,12 @@
 # 本地联调操作手册（零基础，照着点）
 
-适用：UE5.x + 本仓库 `out/entrance_a/`（或 `entrance_b/`）产物。
-**全程在你自己电脑上做，不需要把 UE 工程发给我。**
+适用：UE5.x + 本仓库 `demo/` 开箱包。**全程在你自己电脑上做，不需要把 UE 工程发给我。**
+
+> **从 GitHub clone 下来做本地测试的，先读 [`demo/README.md`](../demo/README.md)**——
+> 那里讲清了「clone 到哪、哪个文件放哪、URL 怎么填」。
+> 简单说：**只复制 1 个 `npc_tracks.json` 到 UE 的 `Content/Data/`，HTML 和视频留在仓库原地。**
+> 下面手册里凡出现 `out/` 的地方，都是「自己重跑管线」时的输出位置；
+> 用开箱包时一律换成 `demo/entrance_a/`（或 `entrance_b/`）。
 
 ---
 
@@ -20,14 +25,16 @@
 
 ---
 
-## 1. 先认清 4 个文件
+## 1. 先认清 3 个文件（都在 `demo/entrance_a/`）
 
-| 文件 | 从哪来 | 放到哪 | 谁用 |
+| 文件 | 开箱包里的位置 | 放到哪 | 谁用 |
 |---|---|---|---|
-| `npc_tracks.json` | `out/entrance_a/npc_tracks.json` | `<UE项目>/Content/Data/` | **蓝图**：NPC 逐帧坐标 |
-| `realtime.json` | `out/entrance_a/realtime.json` | 不用放进 UE，只用来生成页面 | 构建脚本 |
-| `dashboard_live.html` | 用 `tools/build_ui.py` 生成 | 任意文件夹，路径记下来 | **Web Browser 控件** |
-| `annotated_web.mp4` | `out/entrance_a/annotated_web.mp4`（没有就转码，见第 2 步） | 与 html **同目录**；接法 B 再放一份到 `Content/Movies/` | 视频画面 |
+| `npc_tracks.json` | `demo/entrance_a/npc_tracks.json` | `<UE项目>/Content/Data/` | **蓝图**：NPC 逐帧坐标 |
+| `dashboard_live.html` | `demo/entrance_a/dashboard_live.html` | **不用动**，URL 指过去 | **Web Browser 控件** |
+| `annotated_web.mp4` | `demo/entrance_a/annotated_web.mp4` | **不用动**，与 HTML 同目录 | 页面右侧视频 |
+
+> clone 后目录长什么样、两个目录怎么摆、A/B 怎么切换，见
+> [`demo/README.md`](../demo/README.md)。**不需要 `realtime.json`**——数据已内嵌进 HTML。
 
 > 两段素材的真实参数（**填蓝图时要用，别用文档示例里的 20**）：
 >
@@ -36,33 +43,36 @@
 > | A（1080p） | **29.97** | 936 | 31.23 s | **58** | 74 / 37 |
 > | B（720p） | **29.0** | 887 | 30.59 s | **34** | 22 / 8 |
 
----
+<details>
+<summary>想自己重新生成这三个文件（需要 Python 环境，可跳过）</summary>
 
-## 2. 第 1 步：先不打开 UE，生成并自测 UI 页面
-
-在仓库根目录打开终端（Windows 用 PowerShell），执行：
+放好原始视频到 `data/input/` 后 `bash tools/run_all.sh` 会产出到 `out/entrance_a/`；
+或只重新生成页面：
 
 ```bash
-python tools/build_ui.py --data out/entrance_a/realtime.json \
+python tools/build_ui.py --data examples/realtime_a_1080p.json \
        --video annotated_web.mp4 --label "素材 A · 门口监控" \
        --out out/entrance_a/dashboard_live.html
 ```
 
-如果 `out/entrance_a/annotated_web.mp4` 还不存在，加 `--h264` 让它顺手转码：
+`--h264` 会把 OpenCV 输出的 `mp4v` 转成浏览器能播的 H.264。
+对应关系表见 [`demo/README.md`](../demo/README.md) 第 6 节。
 
-```bash
-python tools/build_ui.py --data out/entrance_a/realtime.json \
-       --video annotated.mp4 --h264 --label "素材 A · 门口监控" \
-       --out out/entrance_a/dashboard_live.html
-```
+</details>
 
-**必须知道的一件事**：管线直接输出的 `annotated.mp4` 是 `mp4v` 编码，
-Chrome 和 UE 的 CEF **都播不了**，右侧视频会黑屏。必须用 `--h264`
-转出的 `annotated_web.mp4`，或者用手机录的原始视频（本来就是 H.264）。
+---
 
-生成后确认 **`dashboard_live.html` 和 `annotated_web.mp4` 在同一个文件夹**，
-然后**双击 html 自测**：点「播放」，右侧出画面、顶部数字随时间跳。
+## 2. 第 1 步：先不打开 UE，自测成品页
+
+**用开箱包的话这一步什么都不用生成**：直接双击
+`demo/entrance_a/dashboard_live.html`，点「播放」。
+
+期望：右侧出视频画面、顶部数字随时间跳、能拖动进度条。
 这一步过了，说明 UI + 数据 + 视频全都没问题，后面只剩 UE 接线。
+
+> ⚠️ 唯一容易踩的坑：管线直接输出的 `annotated.mp4` 是 `mp4v` 编码，
+> Chrome 和 UE 的 CEF **都播不了**，右侧会黑屏。开箱包里给的是已经转好的
+> `annotated_web.mp4`（H.264），**必须与 HTML 放在同一个文件夹**。
 
 ---
 
@@ -74,8 +84,8 @@ Chrome 和 UE 的 CEF **都播不了**，右侧视频会黑屏。必须用 `--h2
    - `Web Browser` —— 显示 UI
 3. 在 **Windows 资源管理器**（不是 UE 内容浏览器）里，到 `<项目>/Content/` 下新建
    `Data` 和 `Movies` 两个文件夹：
-   - 把 `npc_tracks.json` 复制进 `Content/Data/`
-   - 把 `annotated_web.mp4` 复制进 `Content/Movies/`（接法 A 时这份只是备用）
+   - 把 `demo/entrance_a/npc_tracks.json` 复制进 `Content/Data/`
+   - 接法 A（默认）**不需要**往 `Movies` 放东西；接法 B 才把 `annotated_web.mp4` 复制进去
    - json / mp4 不是 UE 资产，**别用 Import**，直接文件管理器复制
 4. 建模自检（选中物体看右下角 Details → Transform → Location）：
 
@@ -101,6 +111,7 @@ Chrome 和 UE 的 CEF **都播不了**，右侧视频会黑屏。必须用 `--h2
 2. 新建时**勾上 "Video output Media Texture asset"**，会自动多出 `MP_Clock_Video`
 3. 再建一个 **File Media Source**：右键 → `Media` → `File Media Source`，
    命名 `MS_Clock`，`File Path` 指向 `Content/Movies/annotated_web.mp4`
+   （接法 A 若不往 Movies 放文件，也可直接指向仓库 `demo/` 里那份的绝对路径）
 4. 打开 `BP_Manager`（下一步会建）的 BeginPlay，接：
 
 ```
@@ -111,7 +122,7 @@ Event BeginPlay
 ```
 
 > 本地偷懒版：可以不建 File Media Source，直接用 `MP_Clock → Open URL`，
-> 填视频的完整路径（例如 `C:/.../out/entrance_a/annotated_web.mp4`）。
+> 填视频的完整路径（例如 `D:/canteen_twin/demo/entrance_a/annotated_web.mp4`）。
 > 但打包后会失效，正式用还是走 File Media Source。
 
 **这个 MediaPlayer 唯一的职责是提供 `GetTime()`**。视频画面由谁显示都行，
@@ -259,13 +270,14 @@ Event Tick
 3. Anchors 选**四边拉伸**（左上角图标），Offsets 全填 0 → 控件铺满全屏
 4. **勾 `Supports Transparency`**（有的版本叫 `Enable Transparency`）
    —— 不勾，左下就是一块黑，看不见 3D 场景
-5. `Initial URL` 填成品页路径：
+5. `Initial URL` 填成品页路径（**clone 后就是这个路径，文件不用挪**）：
 
 ```
-file:///C:/Users/你的名字/.../canteen_twin/out/entrance_a/dashboard_live.html
+file:///D:/canteen_twin/demo/entrance_a/dashboard_live.html
 ```
 
 > 三个斜杠；路径用 `/` 不要用 `\`；**目录名别带中文和空格**，CEF 容易解析失败。
+> 换 B 素材就把 `entrance_a` 改成 `entrance_b`，同时把 `Content/Data/` 的 json 也换成 B。
 
 6. 在 `BP_Manager` 的 BeginPlay 里（或关卡蓝图）：
 
@@ -284,7 +296,7 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 
 | # | 操作 | 期望结果 | 不对时查 |
 |---|---|---|---|
-| 1 | 双击 `dashboard_live.html` | 右侧出视频、顶部数字随时间变 | mp4 不是 H.264 → 用 `--h264` 重生成 |
+| 1 | 双击 `demo/entrance_a/dashboard_live.html` | 右侧出视频、顶部数字随时间变 | mp4 与 html 分开 / 用了 `annotated.mp4` |
 | 2 | UE 里 Play，看 Output Log | `NPC 数 = 58`（A）/ `34`（B） | `Content/Data/` 路径、Decode Json 返回值 |
 | 3 | 看小人出现的位置 | 在门外 `X < 0` 一侧，不在店里 | 场景 X 轴反了 → 见 `modeling_spec.md` §1.1 |
 | 4 | 看小人进门方向 | 朝 **+X** 走（进店），出店朝 −X | 还按旧图纸建的 → 整体绕门洞中点转 180° |
@@ -293,7 +305,7 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 | 7 | 看左下 | 透明，能看见 3D 场景 | 没勾 `Supports Transparency` |
 | 8 | 视频播到约 10 s | 面板数字变化，且与视频里过门的人对得上 | 推的不是 `MediaPlayer.GetTime()` |
 | 9 | 等视频循环回 0 | NPC 和面板一起回到开头 | 全都由 `T` 推导，天然支持 |
-| 10 | 对照最终统计 | 播完累计 **58 人 / 74 进 / 37 出**（A） | 页面内嵌旧数据 → 重新 `build_ui.py` |
+| 10 | 对照最终统计 | 播完累计 **58 人 / 74 进 / 37 出**（A） | 页面内嵌的是旧数据 → 重新 `build_ui.py` |
 
 > 第 3～5 条就是我远程没法替你验、需要你截图告诉我的部分。
 
@@ -303,9 +315,9 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 右侧视频黑屏 / 提示编码不支持 | `annotated.mp4` 是 mp4v | 用 `--h264` 生成 `annotated_web.mp4` |
+| 右侧视频黑屏 / 提示编码不支持 | 用了 `annotated.mp4`（mp4v）或视频与 html 分开了 | 用 `annotated_web.mp4`，且与 html 同目录 |
 | 左下整块黑 | Web Browser 没开透明 | 勾 `Supports Transparency` |
-| 页面白屏 | 用了模板页 `ui/index.html` 且 `file://` 被拦 | 用 `build_ui.py` 生成的**成品页**（数据内嵌） |
+| 页面白屏 | URL 路径带中文 / 空格 / 反斜杠 | 纯英文路径、三个斜杠、用 `/` |
 | 页面一直 0.0 s | `Execute Javascript` 没调 / 控件没勾 Is Variable | 核对变量名和拼出的字符串 |
 | 数字不动但小人在动 | 推的是 Tick 累计时间 | 统一用 `MP_Clock.GetTime()` |
 | 小人和视频差半秒 | `MetaFps` 填成 20 了 | 从 `meta.fps` 读：A=29.97，B=29.0 |
@@ -326,6 +338,7 @@ Create Widget (Class = WBP_Hud) → Add to Viewport (ZOrder = 10)
 ---
 
 相关文档：
+- [`demo/README.md`](../demo/README.md) — **clone 到哪 / 文件放哪 / URL 怎么填**
 - [`modeling_spec.md`](modeling_spec.md) — 建模尺寸与轴向（含旧图迁移）
 - [`ue5_integration.md`](ue5_integration.md) — 数据格式、同步策略、UI 契约
 - [`realtime_data_contract.md`](realtime_data_contract.md) — `realtime.json` 字段表

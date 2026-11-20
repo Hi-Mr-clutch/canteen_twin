@@ -18,6 +18,17 @@ video.mp4 ─▶ 检测(人) ─▶ 跟踪(稳定ID) ─▶ 四点透视(像素�
 
 ---
 
+> ### 只想本地跑 UE 测试？从这里开始
+>
+> `git clone https://github.com/Hi-Mr-clutch/canteen_twin.git` 后先看
+> **[`demo/README.md`](demo/README.md)**：仓库已附带 A / B 两套**开箱成品**
+> （`npc_tracks.json` + `dashboard_live.html` + H.264 视频），不用装 Python、不用重跑管线。
+> **只需把 1 个 `npc_tracks.json` 复制到 UE 的 `Content/Data/`**，HTML 和视频留在仓库原地，
+> Web Browser 的 URL 指过去即可。零基础的蓝图接线 / 插视频 / 验收清单见
+> [`docs/local_test_guide.md`](docs/local_test_guide.md)。
+
+---
+
 ## 1. 你要准备的东西
 
 **一台机位、一个门口**，录一段视频就够。单机位能算出这个门口的全部指标
@@ -30,7 +41,9 @@ video.mp4 ─▶ 检测(人) ─▶ 跟踪(稳定ID) ─▶ 四点透视(像素�
 > **两段最终素材已定稿**（A 1080p / B 720p），不再重录。已标定的可复现配置
 > `configs/final_a_1080p.json`、`configs/final_b_720p.json`，放好素材后直接跑；
 > 参数、标定点、最终统计与已知局限见 [`docs/final_footage.md`](docs/final_footage.md)。
-> 视频本体体积大（A 98 MiB）不进仓库，请用网盘/U 盘交给协作者。
+> 原始视频体积大（A 98 MiB）不进仓库，请用网盘/U 盘交给协作者；
+> 但 [`demo/`](demo/README.md) 里附带了转码后的小体积网页视频（约 12 MiB / 段），
+> **本地测试 clone 仓库即有**，不需要另外传视频。
 
 > 相比两机位方案，单机位省掉了：两路对时、转角墙出镜、画面不重叠、90° 坐标旋转、
 > 结果合并，以及"累计人数不能相加"这个口径坑。**不需要第二台设备，也不需要合并脚本。**
@@ -274,6 +287,10 @@ python3 tools/calibrate_homography.py --video data/input/你的视频.mp4 \
 
 ```
 canteen_twin/
+├── demo/                         # ★ 本地测试开箱包（clone 即有，不用跑管线）
+│   ├── README.md                 # clone 到哪 / 文件放哪 / URL 怎么填
+│   ├── entrance_a/               # A 素材：npc_tracks.json + dashboard_live.html + 视频
+│   └── entrance_b/               # B 素材：同上
 ├── ui/
 │   └── index.html                # ★ 实时看板（L 型 HUD：顶部+右侧 UI，左下透明）
 ├── src/
